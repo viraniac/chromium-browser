@@ -28,7 +28,7 @@ Bug-Ubuntu: https://launchpad.net/bugs/1718885
        ":disable_icf",
 --- a/src/components/nacl/loader/BUILD.gn
 +++ b/src/components/nacl/loader/BUILD.gn
-@@ -117,6 +117,7 @@ if (is_linux) {
+@@ -113,6 +113,7 @@ if (is_linux) {
        "nacl_helper_linux.h",
      ]
  

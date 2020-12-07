@@ -223,6 +223,7 @@ override_dh_install-arch: TRASH := \
 	\*.pak.info \
 	flatc \
 	\*.service \
+	./clang_* \
 	./libEGL.so \
 	./libGLESv2.so \
 	libVkLayer_\* \

@@ -6,7 +6,7 @@ Author: Olivier Tilloy <olivier.tilloy@canonical.com>
 
 --- a/src/chrome/common/chrome_paths.cc
 +++ b/src/chrome/common/chrome_paths.cc
-@@ -381,8 +381,17 @@ bool PathProvider(int key, base::FilePat
+@@ -376,8 +376,17 @@ bool PathProvider(int key, base::FilePat
        cur = cur.Append(FILE_PATH_LITERAL("pnacl"));
        break;
  
@@ -25,7 +25,7 @@ Author: Olivier Tilloy <olivier.tilloy@canonical.com>
        if (!GetComponentDirectory(&cur))
          return false;
  #if !defined(OS_CHROMEOS)
-@@ -391,7 +400,7 @@ bool PathProvider(int key, base::FilePat
+@@ -386,7 +395,7 @@ bool PathProvider(int key, base::FilePat
        cur = cur.AppendASCII(kWidevineCdmBaseDirectory);
  #endif  // !defined(OS_CHROMEOS)
        break;

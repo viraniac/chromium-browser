@@ -53,10 +53,11 @@
  if __name__ == '__main__':
      gyp_vars = {}
      gypi = os.path.join(os.environ["HOME"], ".gyp", "include.gypi")
-@@ -59,11 +74,14 @@ if __name__ == '__main__':
+@@ -58,12 +73,14 @@ if __name__ == '__main__':
+         gyps = open(gypi).read(-1)
          gyp_vars = ast.literal_eval(gyps)["variables"]
  
-     gyp_vars["target_sysroot"] = os.path.abspath("build/linux/raspian_stretch_pi1-sysroot")
+-    gyp_vars["target_sysroot"] = os.path.abspath("build/linux/raspian_stretch_pi1-sysroot")
 +    gyp_vars["target_sysroot"] = os.path.abspath("build/linux/pios_buster_arm-sysroot")
  
 -    docopy("armv6", gyp_vars)
@@ -124,3 +125,82 @@
 +use_gnome_keyring = false
 +
 +is_official_build = true
+--- a/src/pi-util/BUILD.txt
++++ b/src/pi-util/BUILD.txt
+@@ -30,18 +30,20 @@ gclient sync --with_branch_heads
+ cd ..
+ patch -p1 < v55.0.2883.99.patch
+ cd src
+-# * Get a sysroot from somewhere and put it in build/linux/raspian_jessie_pi1-sysroot
++# * Get a sysroot from somewhere and put it in build/linux/pios_buster_arm-sysroot
+ # * Example below is only if you have got an appropriate one lying around
+ # * Otherwise follow sysroot instructions further down
+-rsync -rl previous_location/raspian_jessie_pi1-sysroot build/linux/
++rsync -rl previous_location/pios_buster_arm-sysroot build/linux/
+ # Build output directories (out/armv6, out/armv7)
+-# * This script currently assumes a sysroot of build/linux/raspian_jessie_pi1-sysroot
++# * This script currently assumes a sysroot of build/linux/pios_buster_arm-sysroot
+ #   so may need editing if you have put it elsewhere
+ pi-util/gngen.py
+ # Build chrome
+-ninja -C out/armv6 chrome chrome_sandbox
+-# Build armv7 ffmpeg
+-ninja -C out/armv7 third_party/ffmpeg
++ninja -C out/armv6-rel chrome chromedriver
++ninja -C out/armv7-rel chrome
++# Build ffmpeg with no extra codecs
++ninja -C out/armv6-rel-stc third_party/ffmpeg
++ninja -C out/armv7-rel-std third_party/ffmpeg
+ 
+ 
+ To run on a Pi
+@@ -197,7 +199,7 @@ helpful apt-get install so all you shoul
+ appropriate pi.
+ 
+ Next the appropriate bits need to be copied to
+-build/linux/<sysroot-name>-sysroot. We use raspian_stretch_pi1 as the
++build/linux/<sysroot-name>-sysroot. We use pios_buster_arm as the
+ sysroot name in these instructions and in the example script files so you
+ might well find it easiest to use the same name too
+ 
+@@ -205,9 +207,9 @@ The script pi-util/syncroot.sh that will
+ the right place and then fix the full path symlinks to be relative.  It
+ uses rsync to copy the files so the src can contain a machine name
+ 
+-pi-util/syncroot.sh my-pi: raspian_stretch_pi1
++pi-util/syncroot.sh my-pi: pios_buster_arm
+ 
+-The "raspian_stretch_pi1" can be omitted and syncroot will choose the current
++The "pios_buster_arm" can be omitted and syncroot will choose the current
+ default sysroot name.
+ 
+ Beware that there are ~8 rsync statements so if the rsync is operating
+--- a/src/pi-util/syncroot.sh
++++ b/src/pi-util/syncroot.sh
+@@ -3,14 +3,14 @@ set -e
+ if [ "$1" == "" ]; then
+   echo Usage: $0 \<src_dir\> [\<rootname\>]
+   echo src_dir is a source for rsync so may contain m/c name.
+-  echo rootname will be set to \"raspian_stretch_pi1\" if missing
+-  echo e.g.: pi-util/syncroot.sh my-pi: raspian_stretch_pi1
++  echo rootname will be set to \"pios_buster_arm\" if missing
++  echo e.g.: pi-util/syncroot.sh my-pi: pios_buster_arm
+   exit 1
+ fi
+ 
+ SYSROOT_NAME=$2
+ if [ "$SYSROOT_NAME" == "" ]; then
+-  SYSROOT_NAME=raspian_stretch_pi1
++  SYSROOT_NAME=pios_buster_arm
+ fi
+ 
+ DST_ROOT=`gclient root`
+@@ -42,7 +42,7 @@ rsync -rl $SRC/usr/lib/gcc $DST/usr/lib
+ rsync -rl $SRC/usr/include $DST/usr
+ rsync -rl $SRC/usr/share/pkgconfig $DST/usr/share
+ rsync -rl $SRC/usr/share/xcb $DST/usr/share
+-#rsync -rl $SRC/usr/bin/cups-config $DST/usr/bin
++rsync -rl $SRC/usr/bin/cups-config $DST/usr/bin
+ 
+ # Fix up pipewire issue
+ sed 's/struct spa_pod \*c/void \* c/' < $DST/usr/include/pipewire/utils.h > u.h

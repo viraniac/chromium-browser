@@ -49,7 +49,7 @@
  }
  
  config("xcomposite") {
-@@ -111,3 +116,14 @@ if (use_glib) {
+@@ -103,3 +108,14 @@ if (use_glib) {
  config("export_dynamic") {
    ldflags = [ "-rdynamic" ]
  }
@@ -135,7 +135,7 @@
  #include "components/version_info/version_info.h"
  #include "content/public/common/content_client.h"
  #include "content/public/common/content_constants.h"
-@@ -341,6 +342,15 @@ bool HandleVersionSwitches(const base::C
+@@ -342,6 +343,15 @@ bool HandleVersionSwitches(const base::C
    }
  #endif
  
@@ -153,7 +153,7 @@
             version_info::GetVersionNumber().c_str(),
 --- a/src/chrome/common/chrome_switches.cc
 +++ b/src/chrome/common/chrome_switches.cc
-@@ -454,6 +454,9 @@ const char kPermissionRequestApiScope[]
+@@ -455,6 +455,9 @@ const char kPermissionRequestApiScope[]
  // TODO(bauerb): Remove when this flag is not needed anymore.
  const char kPermissionRequestApiUrl[]       = "permission-request-api-url";
  
@@ -233,15 +233,15 @@
    // and must be RGBA_8888 always for software resources.
 --- a/src/components/viz/host/host_gpu_memory_buffer_manager.cc
 +++ b/src/components/viz/host/host_gpu_memory_buffer_manager.cc
-@@ -46,7 +46,7 @@ HostGpuMemoryBufferManager::HostGpuMemor
-       client_id_(client_id),
+@@ -48,7 +48,7 @@ HostGpuMemoryBufferManager::HostGpuMemor
        gpu_memory_buffer_support_(std::move(gpu_memory_buffer_support)),
        task_runner_(std::move(task_runner)) {
--#if !defined(USE_X11)
-+#if !defined(USE_X11) || RPI_PIXMAP  // (gpu_memory_buffer_support.h)  RPI needs configs fot Pi4
-   native_configurations_ = gpu::GetNativeGpuMemoryBufferConfigurations(
-       gpu_memory_buffer_support_.get());
-   native_configurations_initialized_.Signal();
+   bool should_get_native_configs = true;
+-#if defined(USE_X11)
++#if defined(USE_X11) && !RPI_PIXMAP  // (gpu_memory_buffer_support.h)  RPI needs configs for Pi4
+   should_get_native_configs = features::IsUsingOzonePlatform();
+ #endif
+   if (should_get_native_configs) {
 --- a/src/components/viz/service/BUILD.gn
 +++ b/src/components/viz/service/BUILD.gn
 @@ -76,6 +76,7 @@ viz_component("service") {
@@ -269,7 +269,7 @@
      ]
 --- a/src/components/viz/service/display/display.cc
 +++ b/src/components/viz/service/display/display.cc
-@@ -508,7 +508,7 @@ void Display::InitializeRenderer(bool en
+@@ -537,7 +537,7 @@ void Display::InitializeRenderer(bool en
          &settings_, output_surface_.get(), resource_provider_.get(),
          overlay_processor_.get(), current_task_runner_);
    } else {
@@ -302,12 +302,12 @@
  }
  
  const DisplayResourceProvider::ChildResource*
--DisplayResourceProvider::LockForRead(ResourceId id) {
-+DisplayResourceProvider::LockForRead(ResourceId id, bool no_bitmap_fetch) {
+-DisplayResourceProvider::LockForRead(ResourceId id, bool overlay_only) {
++DisplayResourceProvider::LockForRead(ResourceId id, bool overlay_only, bool no_bitmap_fetch) {
    // TODO(ericrk): We should never fail TryGetResource, but we appear to be
    // doing so on Android in rare cases. Handle this gracefully until a better
    // solution can be found. https://crbug.com/811858
-@@ -526,7 +528,7 @@ DisplayResourceProvider::LockForRead(Res
+@@ -543,7 +545,7 @@ DisplayResourceProvider::LockForRead(Res
      }
    }
  
@@ -316,7 +316,7 @@
      const SharedBitmapId& shared_bitmap_id = mailbox;
      std::unique_ptr<SharedBitmap> bitmap =
          shared_bitmap_manager_->GetSharedBitmapFromId(
-@@ -986,6 +988,36 @@ DisplayResourceProvider::ScopedReadLockS
+@@ -1031,6 +1033,36 @@ DisplayResourceProvider::ScopedReadLockS
    return *this;
  }
  
@@ -328,7 +328,7 @@
 +      resource_provider_(resource_provider),
 +      resource_id_(resource_id)
 +{
-+  const ChildResource * const resource = resource_provider->LockForRead(resource_id, true);
++  const ChildResource * const resource = resource_provider->LockForRead(resource_id, false, true);
 +
 +  xshm_ = resource_provider_->shared_bitmap_manager_->GetSharedImageX11FromId(
 +      resource->transferable.size,
@@ -339,13 +339,13 @@
 +  if (!xshm_)
 +  {
 +    // No point in holding a lock if we don't have any memory
-+    resource_provider_->UnlockForRead(resource_id);
++    resource_provider_->UnlockForRead(resource_id, false);
 +  }
 +}
 +
 +DisplayResourceProvider::ScopedReadLockSharedImageX11::~ScopedReadLockSharedImageX11() {
 +  if (xshm_) {
-+    resource_provider_->UnlockForRead(resource_id_);
++    resource_provider_->UnlockForRead(resource_id_, false);
 +  }
 +}
 +#endif
@@ -372,7 +372,7 @@
  
  // This class provides abstractions for receiving and using resources from other
  // modules/threads/processes. It abstracts away GL textures vs GpuMemoryBuffers
-@@ -207,6 +210,29 @@ class VIZ_SERVICE_EXPORT DisplayResource
+@@ -224,6 +227,29 @@ class VIZ_SERVICE_EXPORT DisplayResource
      sk_sp<SkImage> sk_image_;
    };
  
@@ -402,26 +402,27 @@
   private:
    // Forward declared for LockSetForExternalUse below.
    struct ChildResource;
-@@ -521,7 +547,7 @@ class VIZ_SERVICE_EXPORT DisplayResource
+@@ -538,7 +564,7 @@ class VIZ_SERVICE_EXPORT DisplayResource
    // Returns null if we do not have a ContextProvider.
    gpu::gles2::GLES2Interface* ContextGL() const;
  
--  const ChildResource* LockForRead(ResourceId id);
-+  const ChildResource* LockForRead(ResourceId id, bool no_bitmap_fetch = false);
-   void UnlockForRead(ResourceId id);
+-  const ChildResource* LockForRead(ResourceId id, bool overlay_only);
++  const ChildResource* LockForRead(ResourceId id, bool overlay_only, bool no_bitmap_fetch = false);
+   void UnlockForRead(ResourceId id, bool overlay_only);
  
    void TryReleaseResource(ResourceId id, ChildResource* resource);
 --- a/src/components/viz/service/display/overlay_processor_interface.cc
 +++ b/src/components/viz/service/display/overlay_processor_interface.cc
-@@ -21,6 +21,7 @@
+@@ -22,6 +22,8 @@
+ #include "ui/base/ui_base_features.h"
  #include "ui/ozone/public/overlay_manager_ozone.h"
  #include "ui/ozone/public/ozone_platform.h"
- #else
++#else
 +#include "components/viz/service/display/overlay_processor_shm_x11.h"
- #include "components/viz/service/display/overlay_processor_stub.h"
  #endif
  
-@@ -134,6 +135,12 @@ OverlayProcessorInterface::CreateOverlay
+ namespace viz {
+@@ -136,6 +138,12 @@ OverlayProcessorInterface::CreateOverlay
          shared_image_manager, memory_tracker, gpu_task_scheduler,
          overlay_enabled);
    }
@@ -594,7 +595,7 @@
 +    use_shm_(false),
 +    widget_(surface_handle),
 +    display_(gfx::GetXDisplay()),
-+    gc_(XCreateGC(display_, widget_, 0, nullptr))
++    gc_(XCreateGC(display_, static_cast<uint32_t>(widget_), 0, nullptr))
 +{
 +#if TRACE_SINGLE_SHMID
 +  LOG(INFO) << "@@@ " << __func__;
@@ -605,8 +606,8 @@
 +    return;
 +  }
 +
-+  if (!XGetWindowAttributes(display_, widget_, &attributes_)) {
-+    LOG(ERROR) << "XGetWindowAttributes failed for window " << widget_;
++  if (!XGetWindowAttributes(display_, static_cast<uint32_t>(widget_), &attributes_)) {
++    LOG(ERROR) << "XGetWindowAttributes failed for window " << static_cast<uint32_t>(widget_);
 +    return;
 +  }
 +
@@ -685,7 +686,7 @@
 +          continue;
 +      }
 +
-+      last_cookie_ = xshm->put_image(widget_, gc_, rect, gfx::Rect());
++      last_cookie_ = xshm->put_image(static_cast<uint32_t>(widget_), gc_, rect, gfx::Rect());
 +    }
 +  }
 +  XFlush(display_);
@@ -735,7 +736,7 @@
 +#endif
 --- /dev/null
 +++ b/src/components/viz/service/display/overlay_processor_shm_x11.h
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,71 @@
 +// Copyright 2014 The Chromium Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -746,6 +747,7 @@
 +#include <memory>
 +
 +#include "base/containers/flat_map.h"
++#include "base/logging.h"
 +#include "base/macros.h"
 +#include "build/build_config.h"
 +#include "components/viz/common/quads/render_pass.h"
@@ -921,35 +923,6 @@
   protected:
    scoped_refptr<base::SequencedTaskRunner> task_runner_;
    SoftwareOutputDeviceClient* client_ = nullptr;
---- a/src/components/viz/service/display/surface_aggregator.cc
-+++ b/src/components/viz/service/display/surface_aggregator.cc
-@@ -1542,6 +1542,26 @@ gfx::Rect SurfaceAggregator::PrewalkTree
-         gfx::Rect child_rect =
-             PrewalkTree(child_surface, child_surface_info.has_moved_pixels,
-                         child_surface_info.parent_pass_id, will_draw, result);
-+
-+        if (child_surface->GetActiveFrame().metadata.may_contain_video) {
-+          if (child_surface->size_in_pixels() != child_surface_info.quad_rect.size())
-+          {
-+#if 0
-+            LOG(INFO) << "Stretch: " <<  child_surface->size_in_pixels().width() << "x" <<
-+                        child_surface->size_in_pixels().height() << " -> " <<
-+                        child_surface_info.quad_rect.width() << "x" <<
-+                        child_surface_info.quad_rect.height() << "; video=" << frame.metadata.may_contain_video << "/" <<
-+                        child_surface->GetActiveFrame().metadata.may_contain_video;
-+#endif
-+            child_surface->DidStretchFrame(child_surface_info.quad_rect.width(),
-+                                           child_surface_info.quad_rect.height());
-+          }
-+          else
-+          {
-+            child_surface->DidntStretchFrame();
-+          }
-+        }
-+
-         if (child_surface->size_in_pixels().GetCheckedArea().ValueOrDefault(0) >
-             0) {
-           float y_scale =
 --- a/src/components/viz/service/display_embedder/server_shared_bitmap_manager.cc
 +++ b/src/components/viz/service/display_embedder/server_shared_bitmap_manager.cc
 @@ -13,12 +13,14 @@
@@ -1153,11 +1126,12 @@
                       SharedBitmapIdHash>
 --- /dev/null
 +++ b/src/components/viz/service/display_embedder/shared_image_x11.cc
-@@ -0,0 +1,449 @@
+@@ -0,0 +1,450 @@
 +#include <stddef.h>
 +#include <stdint.h>
 +#include <string.h>
 +
++#include "base/logging.h"
 +#include "base/memory/read_only_shared_memory_region.h"
 +#include "base/memory/writable_shared_memory_region.h"
 +#include "base/memory/platform_shared_memory_region.h"
@@ -1750,7 +1724,7 @@
    void DiscardBackbuffer() override;
 --- a/src/components/viz/service/frame_sinks/compositor_frame_sink_support.cc
 +++ b/src/components/viz/service/frame_sinks/compositor_frame_sink_support.cc
-@@ -376,8 +376,8 @@ void CompositorFrameSinkSupport::SubmitC
+@@ -391,8 +391,8 @@ void CompositorFrameSinkSupport::SubmitC
  bool CompositorFrameSinkSupport::DidAllocateSharedBitmap(
      base::ReadOnlySharedMemoryRegion region,
      const SharedBitmapId& id) {
@@ -1761,7 +1735,7 @@
      return false;
    }
  
-@@ -633,6 +633,12 @@ void CompositorFrameSinkSupport::DidPres
+@@ -650,6 +650,12 @@ void CompositorFrameSinkSupport::DidPres
    UpdateNeedsBeginFramesInternal();
  }
  
@@ -1821,7 +1795,15 @@
      for (const auto& render_pass : active_frame_data_->frame.render_pass_list) {
 --- a/src/components/viz/service/surfaces/surface.h
 +++ b/src/components/viz/service/surfaces/surface.h
-@@ -131,6 +131,9 @@ class VIZ_SERVICE_EXPORT Surface final {
+@@ -16,6 +16,7 @@
+ 
+ #include "base/callback.h"
+ #include "base/callback_helpers.h"
++#include "base/logging.h"
+ #include "base/macros.h"
+ #include "base/memory/weak_ptr.h"
+ #include "base/optional.h"
+@@ -131,6 +132,9 @@ class VIZ_SERVICE_EXPORT Surface final {
    // Decrements the reference count on resources specified by |resources|.
    void UnrefResources(const std::vector<ReturnedResource>& resources);
  
@@ -1831,7 +1813,7 @@
    // Returns false if |frame| is invalid.
    // |frame_rejected_callback| will be called once if the frame will not be
    // displayed.
-@@ -344,6 +347,10 @@ class VIZ_SERVICE_EXPORT Surface final {
+@@ -344,6 +348,10 @@ class VIZ_SERVICE_EXPORT Surface final {
  
    SurfaceAllocationGroup* const allocation_group_;
  
@@ -1864,24 +1846,9 @@
    void OnBeginFramePausedChanged(bool paused) override;
  
    void clear_returned_resources() { returned_resources_.clear(); }
---- a/src/content/browser/browser_main_loop.cc
-+++ b/src/content/browser/browser_main_loop.cc
-@@ -612,6 +612,12 @@ int BrowserMainLoop::EarlyInitialization
- #endif
- 
- #if defined(USE_X11)
-+#if 0
-+  // (Pi) The mmal shared memory passthrough requires MT X as the frame
-+  // can be deleted (and detached) outside the display thread
-+  if (!gfx::InitializeThreadedX11()) {
-+    LOG(ERROR) << "Failed to put Xlib into threaded mode.";
-+#endif
-   if (UsingInProcessGpu()) {
-     if (!gfx::GetXDisplay()) {
-       LOG(ERROR) << "Failed to open an X11 connection.";
 --- a/src/content/browser/renderer_host/render_process_host_impl.cc
 +++ b/src/content/browser/renderer_host/render_process_host_impl.cc
-@@ -3420,6 +3420,15 @@ void RenderProcessHostImpl::PropagateBro
+@@ -3461,6 +3461,15 @@ void RenderProcessHostImpl::PropagateBro
      switches::kIpcDumpDirectory,
      switches::kIpcFuzzerTestcase,
  #endif
@@ -1907,7 +1874,7 @@
  #include <sys/poll.h>
  #include <sys/socket.h>
  #include <sys/stat.h>
-@@ -123,6 +124,12 @@ void SandboxIPCHandler::HandleRequestFro
+@@ -124,6 +125,12 @@ void SandboxIPCHandler::HandleRequestFro
        service_manager::SandboxLinux::METHOD_MAKE_SHARED_MEMORY_SEGMENT) {
      HandleMakeSharedMemorySegment(fd, iter, fds);
      return;
@@ -1920,7 +1887,7 @@
    }
    NOTREACHED();
  }
-@@ -154,6 +161,89 @@ void SandboxIPCHandler::HandleMakeShared
+@@ -155,6 +162,89 @@ void SandboxIPCHandler::HandleMakeShared
    // shm_fd will close the handle which is no longer needed by this process.
  }
  
@@ -2026,16 +1993,6 @@
    void SendRendererReply(const std::vector<base::ScopedFD>& fds,
                           const base::Pickle& reply,
                           int reply_fd);
---- a/src/content/renderer/android/synchronous_layer_tree_frame_sink.h
-+++ b/src/content/renderer/android/synchronous_layer_tree_frame_sink.h
-@@ -129,6 +129,7 @@ class SynchronousLayerTreeFrameSink
-   void ReclaimResources(
-       const std::vector<viz::ReturnedResource>& resources) override;
-   void OnBeginFramePausedChanged(bool paused) override;
-+  void DidStretchFrame(uint32_t width, uint32_t height) override {}
- 
-   // viz::ExternalBeginFrameSourceClient overrides.
-   void OnNeedsBeginFrames(bool needs_begin_frames) override;
 --- a/src/content/test/fake_renderer_compositor_frame_sink.h
 +++ b/src/content/test/fake_renderer_compositor_frame_sink.h
 @@ -38,6 +38,7 @@ class FakeRendererCompositorFrameSink
@@ -2226,21 +2183,9 @@
  }  // namespace switches
  
  namespace media {
---- a/src/media/base/video_decoder.h
-+++ b/src/media/base/video_decoder.h
-@@ -134,6 +134,9 @@ class MEDIA_EXPORT VideoDecoder {
-   // [|limits::kMinVideoDecodeThreads|, |limits::kMaxVideoDecodeThreads|].
-   static int GetRecommendedThreadCount(int desired_threads);
- 
-+  // Alert that we would like a differet frame size
-+  virtual void TryResizeFrame(uint32_t width, uint32_t height) {}
-+
-  protected:
-   // Deletion is only allowed via Destroy().
-   virtual ~VideoDecoder();
 --- a/src/media/base/video_frame.cc
 +++ b/src/media/base/video_frame.cc
-@@ -1323,4 +1323,21 @@ std::vector<size_t> VideoFrame::Calculat
+@@ -1322,4 +1322,21 @@ std::vector<size_t> VideoFrame::Calculat
    return plane_size;
  }
  
@@ -2265,7 +2210,7 @@
 --- a/src/media/base/video_frame.h
 +++ b/src/media/base/video_frame.h
 @@ -18,6 +18,7 @@
- #include "base/logging.h"
+ #include "base/hash/md5.h"
  #include "base/macros.h"
  #include "base/memory/aligned_memory.h"
 +#include "base/memory/read_only_shared_memory_region.h"
@@ -2295,7 +2240,7 @@
  #if defined(OS_LINUX)
    // Returns a vector containing the backing DmaBufs for this frame. The number
    // of returned DmaBufs will be equal or less than the number of planes of
-@@ -594,6 +604,10 @@ class MEDIA_EXPORT VideoFrame : public b
+@@ -602,6 +612,10 @@ class MEDIA_EXPORT VideoFrame : public b
      data_[plane] = ptr;
    }
  
@@ -2308,7 +2253,7 @@
        VideoPixelFormat format,
 --- a/src/media/base/video_renderer_sink.h
 +++ b/src/media/base/video_renderer_sink.h
-@@ -42,6 +42,8 @@ class MEDIA_EXPORT VideoRendererSink {
+@@ -41,6 +41,8 @@ class MEDIA_EXPORT VideoRendererSink {
      // client.
      virtual base::TimeDelta GetPreferredRenderInterval() = 0;
  
@@ -2369,7 +2314,7 @@
  
  jumbo_source_set("filters") {
    # Do not expand the visibility here without double-checking with OWNERS, this
-@@ -97,6 +98,9 @@ jumbo_source_set("filters") {
+@@ -96,6 +97,9 @@ jumbo_source_set("filters") {
    ]
  
    libs = []
@@ -2379,7 +2324,7 @@
  
    if (proprietary_codecs) {
      sources += [
-@@ -105,6 +109,22 @@ jumbo_source_set("filters") {
+@@ -104,6 +108,21 @@ jumbo_source_set("filters") {
      ]
    }
  
@@ -2396,7 +2341,6 @@
 +    ]
 +
 +    public_configs += [ "//build/config/linux:use_mmal" ]
-+    public_deps += [ "//services/service_manager/zygote" ]
 +  }
 +
    if (media_use_ffmpeg) {
@@ -2497,7 +2441,7 @@
 +//#include "mojo/public/cpp/system/platform_handle.h"
 +#include "services/service_manager/public/cpp/connector.h"
 +#include "services/service_manager/sandbox/linux/sandbox_linux.h"
-+#include "services/service_manager/zygote/common/common_sandbox_support_linux.h"
++#include "content/public/common/zygote/sandbox_support_linux.h"
 +#include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
 +
 +extern "C" {
@@ -2550,7 +2494,7 @@
 +
 +#define MAX_COPY_FRAMES_IN_FLIGHT       8
 +
-+#define ipc_fd ::service_manager::GetSandboxFD
++#define ipc_fd ::content::GetSandboxFD
 +
 +namespace media {
 +
@@ -4807,9 +4751,9 @@
 +    LOG(INFO) << __func__ << "B";
 +#endif
 +
-+    metadata()->SetBoolean(VideoFrameMetadata::ALLOW_OVERLAY, true);
-+    metadata()->SetBoolean(VideoFrameMetadata::COPY_REQUIRED, false);
-+    metadata()->SetBoolean(VideoFrameMetadata::READ_LOCK_FENCES_ENABLED, true);
++    metadata()->allow_overlay =  true;
++    metadata()->copy_required = false;
++    metadata()->read_lock_fences_enabled = true;
 +  }
 +
 +public:
@@ -7849,7 +7793,7 @@
  #endif
 --- a/src/media/renderers/paint_canvas_video_renderer.cc
 +++ b/src/media/renderers/paint_canvas_video_renderer.cc
-@@ -793,6 +793,7 @@ void PaintCanvasVideoRenderer::Paint(
+@@ -784,6 +784,7 @@ void PaintCanvasVideoRenderer::Paint(
    // frame has an unexpected format.
    if (!video_frame.get() || video_frame->natural_size().IsEmpty() ||
        !(media::IsYuvPlanar(video_frame->format()) ||
@@ -7884,7 +7828,7 @@
    // Callback for |video_decoder_stream_| initialization.
 --- a/src/media/renderers/video_resource_updater.cc
 +++ b/src/media/renderers/video_resource_updater.cc
-@@ -40,9 +40,11 @@
+@@ -41,9 +41,11 @@
  #include "gpu/command_buffer/client/shared_image_interface.h"
  #include "gpu/command_buffer/common/shared_image_trace_utils.h"
  #include "gpu/command_buffer/common/shared_image_usage.h"
@@ -7896,7 +7840,7 @@
  #include "third_party/khronos/GLES2/gl2.h"
  #include "third_party/khronos/GLES2/gl2ext.h"
  #include "third_party/libyuv/include/libyuv.h"
-@@ -99,6 +101,12 @@ VideoFrameResourceType ExternalResourceT
+@@ -100,6 +102,12 @@ VideoFrameResourceType ExternalResourceT
                                : gfx::BufferFormat::RGBA_1010102;
        return VideoFrameResourceType::RGB;
      case PIXEL_FORMAT_I420:
@@ -7909,7 +7853,7 @@
        DCHECK_EQ(num_textures, 3);
        buffer_formats[0] = gfx::BufferFormat::R_8;
        buffer_formats[1] = gfx::BufferFormat::R_8;
-@@ -125,6 +133,9 @@ VideoFrameResourceType ExternalResourceT
+@@ -132,6 +140,9 @@ VideoFrameResourceType ExternalResourceT
        NOTREACHED();
        FALLTHROUGH;
      case PIXEL_FORMAT_YV12:
@@ -7919,7 +7863,7 @@
      case PIXEL_FORMAT_I422:
      case PIXEL_FORMAT_I444:
      case PIXEL_FORMAT_I420A:
-@@ -229,6 +240,7 @@ class VideoResourceUpdater::PlaneResourc
+@@ -235,6 +246,7 @@ class VideoResourceUpdater::PlaneResourc
  
    // Casts |this| to SoftwarePlaneResource for software compositing.
    SoftwarePlaneResource* AsSoftware();
@@ -7927,7 +7871,7 @@
  
    // Casts |this| to HardwarePlaneResource for GPU compositing.
    HardwarePlaneResource* AsHardware();
-@@ -243,12 +255,17 @@ class VideoResourceUpdater::PlaneResourc
+@@ -249,12 +261,17 @@ class VideoResourceUpdater::PlaneResourc
    // Sets the unique identifiers for this resource, may only be called when
    // there is a single reference to the resource (i.e. |ref_count_| == 1).
    void SetUniqueId(int unique_frame_id, size_t plane_index) {
@@ -7946,7 +7890,7 @@
    // Accessors for resource identifiers provided at construction time.
    uint32_t plane_resource_id() const { return plane_resource_id_; }
    const gfx::Size& resource_size() const { return resource_size_; }
-@@ -259,6 +276,8 @@ class VideoResourceUpdater::PlaneResourc
+@@ -265,6 +282,8 @@ class VideoResourceUpdater::PlaneResourc
    void remove_ref() { --ref_count_; }
    void clear_refs() { ref_count_ = 0; }
    bool has_refs() const { return ref_count_ != 0; }
@@ -7955,7 +7899,7 @@
  
   private:
    const uint32_t plane_resource_id_;
-@@ -282,16 +301,43 @@ class VideoResourceUpdater::PlaneResourc
+@@ -288,16 +307,43 @@ class VideoResourceUpdater::PlaneResourc
  
  class VideoResourceUpdater::SoftwarePlaneResource
      : public VideoResourceUpdater::PlaneResource {
@@ -8005,7 +7949,7 @@
      DCHECK(shared_bitmap_reporter_);
  
      // Allocate SharedMemory and notify display compositor of the allocation.
-@@ -302,28 +348,91 @@ class VideoResourceUpdater::SoftwarePlan
+@@ -308,28 +354,91 @@ class VideoResourceUpdater::SoftwarePlan
      shared_bitmap_reporter_->DidAllocateSharedBitmap(std::move(shm.region),
                                                       shared_bitmap_id_);
    }
@@ -8103,7 +8047,7 @@
  class VideoResourceUpdater::HardwarePlaneResource
      : public VideoResourceUpdater::PlaneResource {
   public:
-@@ -394,7 +503,7 @@ class VideoResourceUpdater::HardwarePlan
+@@ -400,7 +509,7 @@ class VideoResourceUpdater::HardwarePlan
    const gpu::Mailbox& mailbox() const { return mailbox_; }
  
    GLenum texture_target() const { return texture_target_; }
@@ -8112,7 +8056,7 @@
  
   private:
    gpu::SharedImageInterface* SharedImageInterface() {
-@@ -731,7 +840,7 @@ VideoResourceUpdater::PlaneResource* Vid
+@@ -737,7 +846,7 @@ VideoResourceUpdater::PlaneResource* Vid
    if (software_compositor()) {
      DCHECK_EQ(format, viz::ResourceFormat::RGBA_8888);
  
@@ -8121,7 +8065,7 @@
          plane_resource_id, plane_size, shared_bitmap_reporter_));
    } else {
      all_resources_.push_back(std::make_unique<HardwarePlaneResource>(
-@@ -880,6 +989,12 @@ VideoFrameExternalResources VideoResourc
+@@ -884,6 +993,12 @@ VideoFrameExternalResources VideoResourc
    return external_resources;
  }
  
@@ -8134,7 +8078,7 @@
  VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
      scoped_refptr<VideoFrame> video_frame) {
    TRACE_EVENT0("cc", "VideoResourceUpdater::CreateForSoftwarePlanes");
-@@ -889,6 +1004,7 @@ VideoFrameExternalResources VideoResourc
+@@ -893,6 +1008,7 @@ VideoFrameExternalResources VideoResourc
  
    // Only YUV and Y16 software video frames are supported.
    DCHECK(IsYuvPlanar(input_frame_format) ||
@@ -8142,7 +8086,7 @@
           input_frame_format == PIXEL_FORMAT_Y16);
  
    viz::ResourceFormat output_resource_format;
-@@ -952,6 +1068,7 @@ VideoFrameExternalResources VideoResourc
+@@ -956,6 +1072,7 @@ VideoFrameExternalResources VideoResourc
            return false;
  
          return resource->resource_format() != output_resource_format ||
@@ -8150,7 +8094,7 @@
                 !base::Contains(outplane_plane_sizes, resource->resource_size());
        };
    base::EraseIf(all_resources_, can_delete_resource_fn);
-@@ -959,11 +1076,37 @@ VideoFrameExternalResources VideoResourc
+@@ -963,11 +1080,37 @@ VideoFrameExternalResources VideoResourc
    // Recycle or allocate resources for each video plane.
    std::vector<PlaneResource*> plane_resources;
    plane_resources.reserve(output_plane_count);
@@ -8193,8 +8137,8 @@
    }
  
    VideoFrameExternalResources external_resources;
-@@ -997,19 +1140,30 @@ VideoFrameExternalResources VideoResourc
-         video_renderer_->Copy(video_frame, &canvas, nullptr);
+@@ -1009,19 +1152,30 @@ VideoFrameExternalResources VideoResourc
+                                media::kNoTransformation, nullptr);
        } else {
          HardwarePlaneResource* hardware_resource = plane_resource->AsHardware();
 -        size_t bytes_per_row = viz::ResourceSizes::CheckedWidthInBytes<size_t>(
@@ -8236,7 +8180,7 @@
  
          // Copy pixels into texture.
          auto* gl = raster_context_provider_
-@@ -1024,7 +1178,7 @@ VideoFrameExternalResources VideoResourc
+@@ -1036,7 +1190,7 @@ VideoFrameExternalResources VideoResourc
            gl->TexSubImage2D(
                hardware_resource->texture_target(), 0, 0, 0, plane_size.width(),
                plane_size.height(), GLDataFormat(viz::ResourceFormat::RGBA_8888),
@@ -8245,7 +8189,7 @@
          }
        }
        plane_resource->SetUniqueId(video_frame->unique_id(), 0);
-@@ -1038,6 +1192,8 @@ VideoFrameExternalResources VideoResourc
+@@ -1050,6 +1204,8 @@ VideoFrameExternalResources VideoResourc
            software_resource->shared_bitmap_id(),
            software_resource->resource_size(),
            plane_resource->resource_format());
@@ -8254,7 +8198,7 @@
      } else {
        HardwarePlaneResource* hardware_resource = plane_resource->AsHardware();
        external_resources.type = VideoFrameResourceType::RGBA;
-@@ -1230,6 +1386,11 @@ void VideoResourceUpdater::ReturnTexture
+@@ -1242,6 +1398,11 @@ void VideoResourceUpdater::ReturnTexture
    video_frame->UpdateReleaseSyncToken(&client);
  }
  
@@ -8288,7 +8232,7 @@
                      base::trace_event::ProcessMemoryDump* pmd) override;
 --- a/src/media/video/gpu_memory_buffer_video_frame_pool.cc
 +++ b/src/media/video/gpu_memory_buffer_video_frame_pool.cc
-@@ -577,6 +577,11 @@ void GpuMemoryBufferVideoFramePool::Pool
+@@ -578,6 +578,11 @@ void GpuMemoryBufferVideoFramePool::Pool
  #endif
  
    bool passthrough = false;
@@ -8934,7 +8878,7 @@
 +
 --- /dev/null
 +++ b/src/pi-util/pi-install-dev.sh
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,53 @@
 +# Install set to build appropriate root on a clean pi
 +
 +APT=aptitude
@@ -8949,6 +8893,7 @@
 +libcups2-dev \
 +libexif-dev \
 +libffi-dev \
++libgbm-dev \
 +libgconf2-dev \
 +libgl1-mesa-dev \
 +libgtk-3-dev \
@@ -8961,8 +8906,10 @@
 +libpci-dev \
 +libpcre3-dev \
 +libpipewire-0.2-dev \
++libpulse-dev \
 +libssl-dev \
 +libudev-dev \
++libx11-xcb-dev \
 +libxcb1-dev \
 +libxcb-dri3-dev \
 +libxcb-shm0-dev \
@@ -8997,7 +8944,7 @@
 +    "src/third_party/skia"]
 +
 +# Our base tag or commit no
-+src_commit="84.0.4147.141"
++src_commit="85.0.4183.121"
 --- /dev/null
 +++ b/src/pi-util/pipewire_utils_h.patch
 @@ -0,0 +1,11 @@
@@ -9300,7 +9247,7 @@
                                 const gpu::Mailbox& id);
 --- a/src/third_party/blink/renderer/platform/graphics/video_frame_submitter.cc
 +++ b/src/third_party/blink/renderer/platform/graphics/video_frame_submitter.cc
-@@ -288,6 +288,11 @@ void VideoFrameSubmitter::DidDeleteShare
+@@ -294,6 +294,11 @@ void VideoFrameSubmitter::DidDeleteShare
    compositor_frame_sink_->DidDeleteSharedBitmap(id);
  }
  
@@ -9314,7 +9261,7 @@
      scoped_refptr<viz::RasterContextProvider> context_provider) {
 --- a/src/third_party/blink/renderer/platform/graphics/video_frame_submitter.h
 +++ b/src/third_party/blink/renderer/platform/graphics/video_frame_submitter.h
-@@ -80,6 +80,7 @@ class PLATFORM_EXPORT VideoFrameSubmitte
+@@ -79,6 +79,7 @@ class PLATFORM_EXPORT VideoFrameSubmitte
    void OnBeginFramePausedChanged(bool paused) override {}
    void ReclaimResources(
        const WTF::Vector<viz::ReturnedResource>& resources) override;
@@ -9332,20 +9279,6 @@
    ]
  
    public_configs = [ ":libdrm_config" ]
---- a/src/ui/accessibility/platform/ax_platform_node_auralinux.cc
-+++ b/src/ui/accessibility/platform/ax_platform_node_auralinux.cc
-@@ -190,9 +190,11 @@ bool SupportsAtkComponentScrollingInterf
-   return dlsym(RTLD_DEFAULT, "atk_component_scroll_to_point");
- }
- 
-+#if 0
- bool SupportsAtkTextScrollingInterface() {
-   return dlsym(RTLD_DEFAULT, "atk_text_scroll_substring_to_point");
- }
-+#endif
- 
- AtkObject* FindAtkObjectParentFrame(AtkObject* atk_object) {
-   AXPlatformNodeAuraLinux* node =
 --- a/src/ui/android/delegated_frame_host_android.h
 +++ b/src/ui/android/delegated_frame_host_android.h
 @@ -121,6 +121,8 @@ class UI_ANDROID_EXPORT DelegatedFrameHo
@@ -9379,7 +9312,7 @@
  import("//build/config/ui.gni")
  import("//device/vr/buildflags/buildflags.gni")
  import("//testing/libfuzzer/fuzzer_test.gni")
-@@ -578,6 +579,21 @@ jumbo_source_set("memory_buffer_sources"
+@@ -577,6 +578,21 @@ jumbo_source_set("memory_buffer_sources"
      ]
  
      deps += [ "//build/config/linux/libdrm" ]
@@ -9730,7 +9663,7 @@
 +
 --- /dev/null
 +++ b/src/ui/gfx/linux/native_pixmap_vcsm.h
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,33 @@
 +// Copyright 2017 The Chromium Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -9743,6 +9676,7 @@
 +#include <memory>
 +
 +#include "base/files/scoped_file.h"
++#include "base/logging.h"
 +#include "base/macros.h"
 +#include "base/memory/ref_counted.h"
 +#include "ui/gfx/client_native_pixmap.h"
@@ -10729,7 +10663,7 @@
  #define M(st) (StageFn)SK_OPTS_NS::st,
 --- a/src/third_party/skia/src/core/SkOpts.h
 +++ b/src/third_party/skia/src/core/SkOpts.h
-@@ -28,6 +28,7 @@ namespace SkOpts {
+@@ -29,6 +29,7 @@ namespace SkOpts {
  
      extern void (*blit_mask_d32_a8)(SkPMColor*, size_t, const SkAlpha*, size_t, SkColor, int, int);
      extern void (*blit_row_color32)(SkPMColor*, const SkPMColor*, int, SkPMColor);
@@ -10737,7 +10671,7 @@
      extern void (*blit_row_s32a_opaque)(SkPMColor*, const SkPMColor*, int, U8CPU);
  
      // Swizzle input into some sort of 8888 pixel, {premul,unpremul} x {rgba,bgra}.
-@@ -67,6 +68,9 @@ namespace SkOpts {
+@@ -66,6 +67,9 @@ namespace SkOpts {
      extern void (*S32_alpha_D32_filter_DXDY)(const SkBitmapProcState&,
                                               const uint32_t* xy, int count, SkPMColor*);
  
@@ -10747,21 +10681,6 @@
  #define M(st) +1
      // We can't necessarily express the type of SkJumper stage functions here,
      // so we just use this void(*)(void) as a stand-in.
---- a/src/third_party/skia/src/core/SkSpan.h
-+++ b/src/third_party/skia/src/core/SkSpan.h
-@@ -65,8 +65,10 @@ private:
- template <typename T, typename S>
- inline constexpr SkSpan<T> SkMakeSpan(T* p, S s) { return SkSpan<T>{p, SkTo<size_t>(s)}; }
- 
--template <size_t N, typename T>
--inline constexpr SkSpan<T> SkMakeSpan(T(&a)[N]) { return SkSpan<T>{a, N}; }
-+// *** Caused redefinition errors in v82 (but was OK in in v82??)
-+//     but doesn't seem to be needed
-+//template <size_t N, typename T>
-+//inline constexpr SkSpan<T> SkMakeSpan(T(&a)[N]) { return SkSpan<T>{a, N}; }
- 
- template <typename Container>
- inline auto SkMakeSpan(Container& c)
 --- a/src/third_party/skia/src/opts/SkBitmapProcState_opts.h
 +++ b/src/third_party/skia/src/opts/SkBitmapProcState_opts.h
 @@ -387,6 +387,257 @@ static void decode_packed_coordinates_an
@@ -11393,7 +11312,7 @@
 +
 +/// Macro to do "over" compositing blending on 8 32bpp premultiplied ARGB source and 8 8-bit alpha mask pixels
 +/// which are with either translucent or a mixture of opaque and transparent.
-+/// Relies on A(x) to determine whether to emit code in ARM state (as opposed to Thumb state).
++/// Relies on RPI_TARGET_A(x) to determine whether to emit code in ARM state (as opposed to Thumb state).
 +/// @arg align           bit-alignment specifier on destination loads/stores (optional)
 +/// @arg if_loadstore    YES or NO: whether to do load/store of destination
 +/// @arg if_preload      YES or NO: whether to insert prefetch instructions
@@ -11572,11 +11491,11 @@
 +
 +// Macros to specify instructions to only include if targeting ARM or Thumb instruction sets
 +#ifdef __thumb__
-+#define A(x)
-+#define T(x) x
++#define RPI_TARGET_A(x)
++#define RPI_TARGET_T(x) x
 +#else
-+#define A(x) x
-+#define T(x)
++#define RPI_TARGET_A(x) x
++#define RPI_TARGET_T(x)
 +#endif
 +
 +// These macros permit optionally-included features to be switched using a parameter to another macro
@@ -11711,7 +11630,7 @@
 +
 +/// Macro to do "over" compositing blending on 8 32bpp premultiplied ARGB pixels
 +/// which are with either translucent or a mixture of opaque and transparent.
-+/// Relies on A(x) to determine whether to emit code in ARM state (as opposed to Thumb state).
++/// Relies on RPI_TARGET_A(x) to determine whether to emit code in ARM state (as opposed to Thumb state).
 +/// @arg align           bit-alignment specifier on destination loads/stores (optional)
 +/// @arg other_src_alpha D-register specifier for alpha source in other bank (only IF_OVERLAP)
 +/// @arg src0            Q-register specifier for blue/green source in this bank
@@ -11744,9 +11663,9 @@
 +                "vraddhn.u16 d19, q11, q15                                                    \n\t"   \
 +if_overlap(     "mvn         %[tmp], %[alo]                                                   \n\t")  \
 +if_overlap(     "vmvn        d31, "#other_src_alpha"                                          \n\t")  \
-+if_overlap(A(   "orr         %[alo], %[ahi]                                                   \n\t")) \
++if_overlap(RPI_TARGET_A(   "orr         %[alo], %[ahi]                                                   \n\t")) \
 +                "vadd.i8     "#src0", q8                                                      \n\t"   \
-+if_overlap(A(   "mvn         %[ahi], %[ahi]                                                   \n\t")) \
++if_overlap(RPI_TARGET_A(   "mvn         %[ahi], %[ahi]                                                   \n\t")) \
 +                "vadd.i8     "#src1", q9                                                      \n\t"   \
 +                opt"                                                                          \n\t"   \
 +if_loadstore(   "vst4.8      {"#src0", "#src1"}, [%[dst]"#align"]!                            \n\t")  \
@@ -11871,12 +11790,12 @@
 +                // Mixed or translucent pixels in d0-d3
 +                "30:                                                                          \n\t"
 +                S32A_OPAQUE_8PIX_BLEND(:128, d7, q0, q1,, YES, YES, IF_PRELOAD)
-+A(              "teq         %[alo], #0                                                       \n\t")
-+T(              "orrs        %[alo], %[alo], %[ahi]                                           \n\t")
++RPI_TARGET_A(              "teq         %[alo], #0                                                       \n\t")
++RPI_TARGET_T(              "orrs        %[alo], %[alo], %[ahi]                                           \n\t")
 +                "vld4.8      {d0-d3}, [%[src]]!                                               \n\t"
 +                "beq         29b                                                              \n\t"
-+A(              "orrs        %[tmp], %[tmp], %[ahi]                                           \n\t")
-+T(              "orns        %[tmp], %[tmp], %[ahi]                                           \n\t")
++RPI_TARGET_A(              "orrs        %[tmp], %[tmp], %[ahi]                                           \n\t")
++RPI_TARGET_T(              "orns        %[tmp], %[tmp], %[ahi]                                           \n\t")
 +                "bne         40f                                                              \n\t"
 +                "vst4.8      {d4-d7}, [%[dst]:128]                                            \n\t"
 +                "b           29b                                                              \n\t"
@@ -11886,12 +11805,12 @@
 +                S32A_OPAQUE_8PIX_BLEND(:128, d3, q2, q3, \
 +                "subs        %[len], #16", YES, YES, NO)
 +                "bcc         50f                                                              \n\t"
-+A(              "teq         %[alo], #0                                                       \n\t")
-+T(              "orrs        %[alo], %[alo], %[ahi]                                           \n\t")
++RPI_TARGET_A(              "teq         %[alo], #0                                                       \n\t")
++RPI_TARGET_T(              "orrs        %[alo], %[alo], %[ahi]                                           \n\t")
 +                "vld4.8      {d4-d7}, [%[src]]!                                               \n\t"
 +                "beq         19b                                                              \n\t"
-+A(              "orrs        %[tmp], %[tmp], %[ahi]                                           \n\t")
-+T(              "orns        %[tmp], %[tmp], %[ahi]                                           \n\t")
++RPI_TARGET_A(              "orrs        %[tmp], %[tmp], %[ahi]                                           \n\t")
++RPI_TARGET_T(              "orns        %[tmp], %[tmp], %[ahi]                                           \n\t")
 +                "bne         30b                                                              \n\t"
 +                "vst4.8      {d0-d3}, [%[dst]:128]                                            \n\t"
 +                "b           19b                                                              \n\t"
@@ -12007,3 +11926,44 @@
      }
      /*not static*/ inline void memset64(uint64_t buffer[], uint64_t value, int count) {
          memsetT(buffer, value, count);
+--- a/src/components/viz/service/display/surface_aggregator.cc
++++ b/src/components/viz/service/display/surface_aggregator.cc
+@@ -1310,6 +1310,25 @@ gfx::Rect SurfaceAggregator::PrewalkRend
+                                       remapped_pass_id, will_draw, result);
+         }
+ 
++        if (child_surface->GetActiveFrame().metadata.may_contain_video) {
++          if (child_surface->size_in_pixels() != surface_quad->rect.size())
++          {
++#if 0
++            LOG(INFO) << "Stretch: " <<  child_surface->size_in_pixels().width() << "x" <<
++                        child_surface->size_in_pixels().height() << " -> " <<
++                        surface_quad->rect.width() << "x" <<
++                        surface_quad->rect.height() << "; video=" << frame.metadata.may_contain_video << "/" <<
++                        child_surface->GetActiveFrame().metadata.may_contain_video;
++#endif
++            child_surface->DidStretchFrame(surface_quad->rect.width(),
++                                           surface_quad->rect.height());
++          }
++          else
++          {
++            child_surface->DidntStretchFrame();
++          }
++        }
++
+         if (surface_quad->stretch_content_to_fill_bounds) {
+           if (!child_surface->size_in_pixels().IsEmpty()) {
+             float y_scale = static_cast<float>(surface_quad->rect.height()) /
+--- a/src/media/base/video_decoder.h
++++ b/src/media/base/video_decoder.h
+@@ -135,6 +135,10 @@ class MEDIA_EXPORT VideoDecoder {
+   // [|limits::kMinVideoDecodeThreads|, |limits::kMaxVideoDecodeThreads|].
+   static int GetRecommendedThreadCount(int desired_threads);
+ 
++  // Alert that we would like a differet frame size
++  virtual void TryResizeFrame(uint32_t width, uint32_t height) {}
++
++
+   DISALLOW_COPY_AND_ASSIGN(VideoDecoder);
+ };
+ 

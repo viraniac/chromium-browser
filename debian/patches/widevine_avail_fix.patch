@@ -1,6 +1,6 @@
 --- a/src/third_party/widevine/cdm/widevine.gni
 +++ b/src/third_party/widevine/cdm/widevine.gni
-@@ -19,7 +19,7 @@ declare_args() {
+@@ -24,7 +24,7 @@ if (is_chromeos && !is_chromeos_device)
  # TODO(hmchen): Provide support on "arm64".
  library_widevine_cdm_available =
      (is_chromeos && (target_cpu == "x64" || target_cpu == "arm")) ||
