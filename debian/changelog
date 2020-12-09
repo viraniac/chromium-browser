@@ -1,3 +1,9 @@
+chromium-browser (86.0.4240.198-rpt1) buster; urgency=medium
+
+  * Update chromium to 86.0.4240.198
+
+ -- Gunjan Gupta <viraniac@gmail.com>  Mon, 8 Dec 2020 00:00:00 +0000
+
 chromium-browser (85.0.4183.121-rpt1) buster; urgency=medium
 
   * Update chromium to 85.0.4183.121

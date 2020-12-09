@@ -12,7 +12,7 @@
    return base::saturated_cast<size_t>(backtrace(trace, count));
 --- a/src/build/.gitignore
 +++ b/src/build/.gitignore
-@@ -20,6 +20,8 @@ ciopfs
+@@ -21,6 +21,8 @@ ciopfs
  /x64/
  /linux/debian_*-sysroot/
  /linux/ubuntu_*-sysroot/
@@ -31,17 +31,16 @@
  import("//build/config/ui.gni")
  
  group("linux") {
-@@ -41,6 +42,7 @@ config("x11") {
+@@ -41,12 +42,16 @@ config("x11") {
      "X11-xcb",
      "xcb",
      "xcb-dri3",
 +    "xcb-shm",
      "Xcomposite",
-     "Xcursor",
      "Xdamage",
-@@ -50,6 +52,9 @@ config("x11") {
+     "Xext",
+     "Xfixes",
      "Xrender",
-     "Xtst",
    ]
 +  if (current_cpu == "arm") {
 +     libs += [ "xcb-image" ]
@@ -49,7 +48,7 @@
  }
  
  config("xcomposite") {
-@@ -103,3 +108,14 @@ if (use_glib) {
+@@ -92,3 +97,14 @@ if (use_glib) {
  config("export_dynamic") {
    ldflags = [ "-rdynamic" ]
  }
@@ -98,7 +97,7 @@
    void OnNeedsBeginFrames(bool needs_begin_frames) override;
 --- a/src/cc/test/test_layer_tree_frame_sink.h
 +++ b/src/cc/test/test_layer_tree_frame_sink.h
-@@ -104,6 +104,7 @@ class TestLayerTreeFrameSink : public La
+@@ -105,6 +105,7 @@ class TestLayerTreeFrameSink : public La
                      const viz::FrameTimingDetailsMap& timing_details) override;
    void ReclaimResources(
        const std::vector<viz::ReturnedResource>& resources) override;
@@ -127,7 +126,7 @@
          inputs = [ version_script ]
 --- a/src/chrome/app/chrome_main_delegate.cc
 +++ b/src/chrome/app/chrome_main_delegate.cc
-@@ -54,6 +54,7 @@
+@@ -56,6 +56,7 @@
  #include "components/nacl/common/buildflags.h"
  #include "components/services/heap_profiling/public/cpp/profiling_client.h"
  #include "components/startup_metric_utils/browser/startup_metric_utils.h"
@@ -135,7 +134,7 @@
  #include "components/version_info/version_info.h"
  #include "content/public/common/content_client.h"
  #include "content/public/common/content_constants.h"
-@@ -342,6 +343,15 @@ bool HandleVersionSwitches(const base::C
+@@ -329,6 +330,15 @@ bool HandleVersionSwitches(const base::C
    }
  #endif
  
@@ -153,7 +152,7 @@
             version_info::GetVersionNumber().c_str(),
 --- a/src/chrome/common/chrome_switches.cc
 +++ b/src/chrome/common/chrome_switches.cc
-@@ -455,6 +455,9 @@ const char kPermissionRequestApiScope[]
+@@ -459,6 +459,9 @@ const char kPermissionRequestApiScope[]
  // TODO(bauerb): Remove when this flag is not needed anymore.
  const char kPermissionRequestApiUrl[]       = "permission-request-api-url";
  
@@ -165,7 +164,7 @@
  
 --- a/src/chrome/common/chrome_switches.h
 +++ b/src/chrome/common/chrome_switches.h
-@@ -136,6 +136,7 @@ extern const char kPackExtension[];
+@@ -137,6 +137,7 @@ extern const char kPackExtension[];
  extern const char kPackExtensionKey[];
  extern const char kPermissionRequestApiScope[];
  extern const char kPermissionRequestApiUrl[];
@@ -244,7 +243,7 @@
    if (should_get_native_configs) {
 --- a/src/components/viz/service/BUILD.gn
 +++ b/src/components/viz/service/BUILD.gn
-@@ -76,6 +76,7 @@ viz_component("service") {
+@@ -82,6 +82,7 @@ viz_component("service") {
      "display/shader.cc",
      "display/shader.h",
      "display/shared_bitmap_manager.h",
@@ -252,7 +251,7 @@
      "display/skia_output_surface.cc",
      "display/skia_output_surface.h",
      "display/skia_renderer.cc",
-@@ -218,6 +219,14 @@ viz_component("service") {
+@@ -222,6 +223,14 @@ viz_component("service") {
  
    if (use_x11) {
      sources += [
@@ -269,15 +268,15 @@
      ]
 --- a/src/components/viz/service/display/display.cc
 +++ b/src/components/viz/service/display/display.cc
-@@ -537,7 +537,7 @@ void Display::InitializeRenderer(bool en
-         &settings_, output_surface_.get(), resource_provider_.get(),
-         overlay_processor_.get(), current_task_runner_);
+@@ -544,7 +544,7 @@ void Display::InitializeRenderer(bool en
+         resource_provider_.get(), overlay_processor_.get(),
+         current_task_runner_);
    } else {
 -    DCHECK(!overlay_processor_->IsOverlaySupported());
 +//    DCHECK(!overlay_processor_->IsOverlaySupported());
      auto renderer = std::make_unique<SoftwareRenderer>(
-         &settings_, output_surface_.get(), resource_provider_.get(),
-         overlay_processor_.get());
+         &settings_, debug_settings_, output_surface_.get(),
+         resource_provider_.get(), overlay_processor_.get());
 --- a/src/components/viz/service/display/display_resource_provider.cc
 +++ b/src/components/viz/service/display/display_resource_provider.cc
 @@ -18,6 +18,7 @@
@@ -288,7 +287,7 @@
  #include "gpu/GLES2/gl2extchromium.h"
  #include "gpu/command_buffer/client/context_support.h"
  #include "gpu/command_buffer/client/gles2_interface.h"
-@@ -455,7 +456,8 @@ void DisplayResourceProvider::PopulateSk
+@@ -415,7 +416,8 @@ void DisplayResourceProvider::PopulateSk
        SkImageInfo::MakeN32Premul(resource->transferable.size.width(),
                                   resource->transferable.size.height());
    bool pixels_installed = sk_bitmap->installPixels(
@@ -298,7 +297,7 @@
    DCHECK(pixels_installed);
  }
  
-@@ -493,7 +495,7 @@ GLES2Interface* DisplayResourceProvider:
+@@ -453,7 +455,7 @@ GLES2Interface* DisplayResourceProvider:
  }
  
  const DisplayResourceProvider::ChildResource*
@@ -307,7 +306,7 @@
    // TODO(ericrk): We should never fail TryGetResource, but we appear to be
    // doing so on Android in rare cases. Handle this gracefully until a better
    // solution can be found. https://crbug.com/811858
-@@ -543,7 +545,7 @@ DisplayResourceProvider::LockForRead(Res
+@@ -503,7 +505,7 @@ DisplayResourceProvider::LockForRead(Res
      }
    }
  
@@ -316,7 +315,7 @@
      const SharedBitmapId& shared_bitmap_id = mailbox;
      std::unique_ptr<SharedBitmap> bitmap =
          shared_bitmap_manager_->GetSharedBitmapFromId(
-@@ -1031,6 +1033,36 @@ DisplayResourceProvider::ScopedReadLockS
+@@ -985,6 +987,36 @@ DisplayResourceProvider::ScopedReadLockS
    return *this;
  }
  
@@ -372,7 +371,7 @@
  
  // This class provides abstractions for receiving and using resources from other
  // modules/threads/processes. It abstracts away GL textures vs GpuMemoryBuffers
-@@ -224,6 +227,29 @@ class VIZ_SERVICE_EXPORT DisplayResource
+@@ -211,6 +214,29 @@ class VIZ_SERVICE_EXPORT DisplayResource
      sk_sp<SkImage> sk_image_;
    };
  
@@ -402,7 +401,7 @@
   private:
    // Forward declared for LockSetForExternalUse below.
    struct ChildResource;
-@@ -538,7 +564,7 @@ class VIZ_SERVICE_EXPORT DisplayResource
+@@ -515,7 +541,7 @@ class VIZ_SERVICE_EXPORT DisplayResource
    // Returns null if we do not have a ContextProvider.
    gpu::gles2::GLES2Interface* ContextGL() const;
  
@@ -413,7 +412,7 @@
    void TryReleaseResource(ResourceId id, ChildResource* resource);
 --- a/src/components/viz/service/display/overlay_processor_interface.cc
 +++ b/src/components/viz/service/display/overlay_processor_interface.cc
-@@ -22,6 +22,8 @@
+@@ -24,6 +24,8 @@
  #include "ui/base/ui_base_features.h"
  #include "ui/ozone/public/overlay_manager_ozone.h"
  #include "ui/ozone/public/ozone_platform.h"
@@ -422,14 +421,14 @@
  #endif
  
  namespace viz {
-@@ -136,6 +138,12 @@ OverlayProcessorInterface::CreateOverlay
-         shared_image_manager, memory_tracker, gpu_task_scheduler,
-         overlay_enabled);
+@@ -140,6 +142,12 @@ OverlayProcessorInterface::CreateOverlay
+         shared_image_manager, output_surface->GetMemoryTracker(),
+         output_surface->GetGpuTaskSchedulerHelper(), overlay_enabled);
    }
 +#elif USE_SHARED_IMAGE_X11
-+  bool overlay_enabled = surface_handle != gpu::kNullSurfaceHandle;
++  bool overlay_enabled = output_surface->GetSurfaceHandle() != gpu::kNullSurfaceHandle;
 +  if (overlay_enabled)
-+    return std::make_unique<OverlayProcessorShmX11>(surface_handle);
++    return std::make_unique<OverlayProcessorShmX11>(output_surface->GetSurfaceHandle());
 +  else
 +    return std::make_unique<OverlayProcessorStub>();
  #else  // Default
@@ -1596,7 +1595,7 @@
 +#include "base/memory/shared_memory_mapping.h"
 +#include "components/viz/service/viz_service_export.h"
 +#include "ui/gfx/x/x11_types.h"
-+#include "ui/base/x/x11_util_internal.h"
++#include "ui/base/x/x11_util.h"
 +#include "ui/gfx/geometry/rect.h"
 +
 +namespace viz
@@ -1672,7 +1671,7 @@
 +
 --- a/src/components/viz/service/display_embedder/software_output_device_x11.cc
 +++ b/src/components/viz/service/display_embedder/software_output_device_x11.cc
-@@ -64,4 +64,8 @@ int SoftwareOutputDeviceX11::MaxFramesPe
+@@ -59,4 +59,8 @@ int SoftwareOutputDeviceX11::MaxFramesPe
    return x11_software_bitmap_presenter_.MaxFramesPending();
  }
  
@@ -1691,7 +1690,7 @@
  #include "ui/base/x/x11_software_bitmap_presenter.h"
  #include "ui/gfx/native_widget_types.h"
  #include "ui/gfx/x/x11.h"
-@@ -32,6 +33,7 @@ class VIZ_SERVICE_EXPORT SoftwareOutputD
+@@ -30,6 +31,7 @@ class VIZ_SERVICE_EXPORT SoftwareOutputD
    void EndPaint() override;
    void OnSwapBuffers(SwapBuffersCallback swap_ack_callback) override;
    int MaxFramesPending() const override;
@@ -1701,7 +1700,7 @@
  
 --- a/src/components/viz/service/display_embedder/software_output_surface.cc
 +++ b/src/components/viz/service/display_embedder/software_output_surface.cc
-@@ -30,6 +30,10 @@ SoftwareOutputSurface::SoftwareOutputSur
+@@ -34,6 +34,10 @@ SoftwareOutputSurface::SoftwareOutputSur
  
  SoftwareOutputSurface::~SoftwareOutputSurface() = default;
  
@@ -1724,7 +1723,7 @@
    void DiscardBackbuffer() override;
 --- a/src/components/viz/service/frame_sinks/compositor_frame_sink_support.cc
 +++ b/src/components/viz/service/frame_sinks/compositor_frame_sink_support.cc
-@@ -391,8 +391,8 @@ void CompositorFrameSinkSupport::SubmitC
+@@ -396,8 +396,8 @@ void CompositorFrameSinkSupport::SubmitC
  bool CompositorFrameSinkSupport::DidAllocateSharedBitmap(
      base::ReadOnlySharedMemoryRegion region,
      const SharedBitmapId& id) {
@@ -1735,7 +1734,7 @@
      return false;
    }
  
-@@ -650,6 +650,12 @@ void CompositorFrameSinkSupport::DidPres
+@@ -655,6 +655,12 @@ void CompositorFrameSinkSupport::DidPres
    UpdateNeedsBeginFramesInternal();
  }
  
@@ -1750,7 +1749,7 @@
      std::vector<TransferableResource> frame_resource_list,
 --- a/src/components/viz/service/frame_sinks/compositor_frame_sink_support.h
 +++ b/src/components/viz/service/frame_sinks/compositor_frame_sink_support.h
-@@ -120,6 +120,7 @@ class VIZ_SERVICE_EXPORT CompositorFrame
+@@ -123,6 +123,7 @@ class VIZ_SERVICE_EXPORT CompositorFrame
        const std::vector<TransferableResource>& resources) override;
    void UnrefResources(const std::vector<ReturnedResource>& resources) override;
    void ReturnResources(const std::vector<ReturnedResource>& resources) override;
@@ -1848,7 +1847,7 @@
    void clear_returned_resources() { returned_resources_.clear(); }
 --- a/src/content/browser/renderer_host/render_process_host_impl.cc
 +++ b/src/content/browser/renderer_host/render_process_host_impl.cc
-@@ -3461,6 +3461,15 @@ void RenderProcessHostImpl::PropagateBro
+@@ -3499,6 +3499,15 @@ void RenderProcessHostImpl::PropagateBro
      switches::kIpcDumpDirectory,
      switches::kIpcFuzzerTestcase,
  #endif
@@ -1875,13 +1874,13 @@
  #include <sys/socket.h>
  #include <sys/stat.h>
 @@ -124,6 +125,12 @@ void SandboxIPCHandler::HandleRequestFro
-       service_manager::SandboxLinux::METHOD_MAKE_SHARED_MEMORY_SEGMENT) {
+       sandbox::policy::SandboxLinux::METHOD_MAKE_SHARED_MEMORY_SEGMENT) {
      HandleMakeSharedMemorySegment(fd, iter, fds);
      return;
-+  } else if (kind == service_manager::SandboxLinux::METHOD_OPEN_DEV_VCHIQ) {
++  } else if (kind == sandbox::policy::SandboxLinux::METHOD_OPEN_DEV_VCHIQ) {
 +    HandleOpenDevVchiq(fd, iter, fds);
 +    return;
-+  } else if (kind == service_manager::SandboxLinux::METHOD_OPEN_DEV_VCSM) {
++  } else if (kind == sandbox::policy::SandboxLinux::METHOD_OPEN_DEV_VCSM) {
 +    HandleOpenDevVcsm(fd, iter, fds);
 +    return;
    }
@@ -2005,7 +2004,7 @@
    void Reset();
 --- a/src/gpu/command_buffer/service/gl_utils.cc
 +++ b/src/gpu/command_buffer/service/gl_utils.cc
-@@ -1127,6 +1127,7 @@ bool ValidateCopyTextureCHROMIUMInternal
+@@ -1141,6 +1141,7 @@ bool ValidateCopyTextureCHROMIUMInternal
        source_internal_format == GL_LUMINANCE_ALPHA ||
        source_internal_format == GL_BGRA_EXT ||
        source_internal_format == GL_BGRA8_EXT ||
@@ -2015,7 +2014,7 @@
        source_internal_format == GL_RGB_YCBCR_P010_CHROMIUM ||
 --- a/src/gpu/ipc/common/gpu_memory_buffer_support.cc
 +++ b/src/gpu/ipc/common/gpu_memory_buffer_support.cc
-@@ -92,6 +92,29 @@ bool GpuMemoryBufferSupport::IsNativeGpu
+@@ -101,6 +101,29 @@ bool GpuMemoryBufferSupport::IsNativeGpu
    }
    NOTREACHED();
    return false;
@@ -2058,19 +2057,19 @@
  class ClientNativePixmapFactory;
 --- a/src/gpu/ipc/host/gpu_memory_buffer_support.cc
 +++ b/src/gpu/ipc/host/gpu_memory_buffer_support.cc
-@@ -16,7 +16,7 @@ GpuMemoryBufferConfigurationSet GetNativ
+@@ -17,7 +17,7 @@ GpuMemoryBufferConfigurationSet GetNativ
    GpuMemoryBufferConfigurationSet configurations;
  
- #if defined(USE_OZONE) || defined(OS_MACOSX) || defined(OS_WIN) || \
+ #if defined(USE_OZONE) || defined(OS_MAC) || defined(OS_WIN) || \
 -    defined(OS_ANDROID)
 +    defined(OS_ANDROID) || RPI_PIXMAP
-   const gfx::BufferFormat kBufferFormats[] = {
-       gfx::BufferFormat::R_8,          gfx::BufferFormat::R_16,
-       gfx::BufferFormat::RG_88,        gfx::BufferFormat::BGR_565,
-@@ -55,7 +55,7 @@ bool GetImageNeedsPlatformSpecificTextur
+ #if defined(USE_OZONE)
+   if (!features::IsUsingOzonePlatform())
+     return configurations;
+@@ -60,7 +60,7 @@ bool GetImageNeedsPlatformSpecificTextur
    if (!NativeBufferNeedsPlatformSpecificTextureTarget(format))
      return false;
- #if defined(USE_OZONE) || defined(OS_MACOSX) || defined(OS_WIN) || \
+ #if defined(USE_OZONE) || defined(OS_MAC) || defined(OS_WIN) || \
 -    defined(OS_ANDROID)
 +    defined(OS_ANDROID) || RPI_PIXMAP
    GpuMemoryBufferSupport support;
@@ -2078,7 +2077,7 @@
        GetNativeGpuMemoryBufferConfigurations(&support);
 --- a/src/gpu/ipc/service/gpu_memory_buffer_factory_native_pixmap.cc
 +++ b/src/gpu/ipc/service/gpu_memory_buffer_factory_native_pixmap.cc
-@@ -11,6 +11,7 @@
+@@ -12,6 +12,7 @@
  #include "ui/gfx/buffer_usage_util.h"
  #include "ui/gfx/client_native_pixmap.h"
  #include "ui/gfx/linux/native_pixmap_dmabuf.h"
@@ -2086,50 +2085,61 @@
  #include "ui/gfx/native_pixmap.h"
  #include "ui/gl/gl_bindings.h"
  #include "ui/gl/gl_enums.h"
-@@ -67,12 +68,18 @@ GpuMemoryBufferFactoryNativePixmap::Crea
+@@ -73,6 +74,7 @@ GpuMemoryBufferFactoryNativePixmap::Crea
      gfx::BufferUsage usage,
      int client_id,
      SurfaceHandle surface_handle) {
-+
 +#if defined(USE_OZONE) || RPI_PIXMAP_VCSM
  #if defined(USE_OZONE)
-   scoped_refptr<gfx::NativePixmap> pixmap =
-       ui::OzonePlatform::GetInstance()
-           ->GetSurfaceFactoryOzone()
-           ->CreateNativePixmap(surface_handle, GetVulkanDevice(), size, format,
-                                usage);
+   if (features::IsUsingOzonePlatform()) {
+     scoped_refptr<gfx::NativePixmap> pixmap =
+@@ -80,13 +82,18 @@ GpuMemoryBufferFactoryNativePixmap::Crea
+             ->GetSurfaceFactoryOzone()
+             ->CreateNativePixmap(surface_handle, GetVulkanDevice(), size,
+                                  format, usage, framebuffer_size);
 +#else
-+  scoped_refptr<gfx::NativePixmap> pixmap(CreateVCSMPixmap(size, format));
++    scoped_refptr<gfx::NativePixmap> pixmap(CreateVCSMPixmap(size, format));
 +#endif
-+
-   return CreateGpuMemoryBufferFromNativePixmap(id, size, format, usage,
-                                                client_id, std::move(pixmap));
- #elif defined(USE_X11)
-@@ -161,6 +168,11 @@ GpuMemoryBufferFactoryNativePixmap::Crea
-                  ->CreateNativePixmapFromHandle(
-                      surface_handle, size, format,
-                      std::move(handle.native_pixmap_handle));
-+#elif RPI_PIXMAP_VCSM
+     return CreateGpuMemoryBufferFromNativePixmap(id, size, format, usage,
+                                                  client_id, std::move(pixmap));
++#if defined(USE_OZONE)
+   }
+ #endif
++#endif
+   DCHECK_EQ(framebuffer_size, size);
+ 
+-#if defined(USE_X11)
++#if defined(USE_X11) && !RPI_PIXMAP_VCSM
+   DCHECK(!features::IsUsingOzonePlatform());
+   std::unique_ptr<ui::GbmBuffer> buffer =
+       ui::GpuMemoryBufferSupportX11::GetInstance()->CreateBuffer(format, size,
+@@ -182,7 +189,12 @@ GpuMemoryBufferFactoryNativePixmap::Crea
+                        std::move(handle.native_pixmap_handle));
+     }
+ #endif
+-#if !defined(OS_FUCHSIA)
++#if RPI_PIXMAP_VCSM
 +    // This is easy enough to build but I don't think it should ever happen
 +    LOG(WARNING) << "Unexpected failure to find pixmap handle id " << handle.id.id << "/" << client_id;
 +
 +    pixmap = CreateVCSMPixmapFromHandle(size, format, std::move(handle.native_pixmap_handle));
- #else
-     DCHECK_EQ(surface_handle, gpu::kNullSurfaceHandle);
-     pixmap = base::WrapRefCounted(new gfx::NativePixmapDmaBuf(
-@@ -191,7 +203,7 @@ GpuMemoryBufferFactoryNativePixmap::Crea
- }
- 
- bool GpuMemoryBufferFactoryNativePixmap::SupportsCreateAnonymousImage() const {
--#if defined(USE_OZONE)
-+#if defined(USE_OZONE) || RPI_PIXMAP_VCSM
-   return true;
- #else
++#elif !defined(OS_FUCHSIA)
+     if (!pixmap) {
+       DCHECK_EQ(surface_handle, gpu::kNullSurfaceHandle);
+       pixmap = base::WrapRefCounted(new gfx::NativePixmapDmaBuf(
+@@ -224,6 +236,8 @@ bool GpuMemoryBufferFactoryNativePixmap:
+ #if defined(USE_OZONE)
+   if (features::IsUsingOzonePlatform())
+     return true;
++#elif RPI_PIXMAP_VCSM
++  return true;
+ #endif
    return false;
-@@ -211,6 +223,8 @@ GpuMemoryBufferFactoryNativePixmap::Crea
-                ->GetSurfaceFactoryOzone()
-                ->CreateNativePixmap(surface_handle, GetVulkanDevice(), size,
-                                     format, usage);
+ }
+@@ -243,6 +257,8 @@ GpuMemoryBufferFactoryNativePixmap::Crea
+                  ->CreateNativePixmap(surface_handle, GetVulkanDevice(), size,
+                                       format, usage);
+   }
 +#elif RPI_PIXMAP_VCSM
 +  pixmap = CreateVCSMPixmap(size, format);
  #else
@@ -2137,7 +2147,7 @@
  #endif
 --- a/src/media/base/media_switches.cc
 +++ b/src/media/base/media_switches.cc
-@@ -201,6 +201,21 @@ const char kUserGestureRequiredPolicy[]
+@@ -206,6 +206,21 @@ const char kUserGestureRequiredPolicy[]
  
  }  // namespace autoplay
  
@@ -2161,7 +2171,7 @@
  namespace media {
 --- a/src/media/base/media_switches.h
 +++ b/src/media/base/media_switches.h
-@@ -93,6 +93,21 @@ MEDIA_EXPORT extern const char kUserGest
+@@ -94,6 +94,21 @@ MEDIA_EXPORT extern const char kUserGest
  
  }  // namespace autoplay
  
@@ -2185,7 +2195,7 @@
  namespace media {
 --- a/src/media/base/video_frame.cc
 +++ b/src/media/base/video_frame.cc
-@@ -1322,4 +1322,21 @@ std::vector<size_t> VideoFrame::Calculat
+@@ -1326,4 +1326,21 @@ std::vector<size_t> VideoFrame::Calculat
    return plane_size;
  }
  
@@ -2237,7 +2247,7 @@
 +  virtual const gpu::Mailbox& GetBitmapId() const;
 +#endif
 +
- #if defined(OS_LINUX)
+ #if defined(OS_LINUX) || defined(OS_CHROMEOS)
    // Returns a vector containing the backing DmaBufs for this frame. The number
    // of returned DmaBufs will be equal or less than the number of planes of
 @@ -602,6 +612,10 @@ class MEDIA_EXPORT VideoFrame : public b
@@ -2306,15 +2316,15 @@
    // it was updated. In certain applications, one might need to periodically
 --- a/src/media/filters/BUILD.gn
 +++ b/src/media/filters/BUILD.gn
-@@ -6,6 +6,7 @@ import("//build/config/jumbo.gni")
+@@ -5,6 +5,7 @@
  import("//media/gpu/args.gni")
  import("//media/media_options.gni")
  import("//third_party/libaom/options.gni")
 +import("//build/config/sysroot.gni")
  
- jumbo_source_set("filters") {
+ source_set("filters") {
    # Do not expand the visibility here without double-checking with OWNERS, this
-@@ -96,6 +97,9 @@ jumbo_source_set("filters") {
+@@ -96,6 +97,9 @@ source_set("filters") {
    ]
  
    libs = []
@@ -2324,7 +2334,7 @@
  
    if (proprietary_codecs) {
      sources += [
-@@ -104,6 +108,21 @@ jumbo_source_set("filters") {
+@@ -104,6 +108,21 @@ source_set("filters") {
      ]
    }
  
@@ -2348,7 +2358,7 @@
        "//media/ffmpeg",
 --- a/src/media/filters/decoder_stream.cc
 +++ b/src/media/filters/decoder_stream.cc
-@@ -1017,6 +1017,14 @@ void DecoderStream<StreamType>::Complete
+@@ -1002,6 +1002,14 @@ void DecoderStream<StreamType>::Complete
    preparing_output_ = false;
  }
  
@@ -2365,8 +2375,8 @@
  
 --- a/src/media/filters/decoder_stream.h
 +++ b/src/media/filters/decoder_stream.h
-@@ -154,6 +154,8 @@ class MEDIA_EXPORT DecoderStream {
-     return fallback_buffers_.size();
+@@ -153,6 +153,8 @@ class MEDIA_EXPORT DecoderStream {
+     return decoder_selector_;
    }
  
 +  void TryResizeFrame(uint32_t width, uint32_t height) const;
@@ -2374,7 +2384,7 @@
   private:
    enum State {
      STATE_UNINITIALIZED,
-@@ -310,6 +312,9 @@ bool DecoderStream<DemuxerStream::AUDIO>
+@@ -318,6 +320,9 @@ bool DecoderStream<DemuxerStream::AUDIO>
  template <>
  int DecoderStream<DemuxerStream::AUDIO>::GetMaxDecodeRequests() const;
  
@@ -2386,7 +2396,7 @@
  
 --- /dev/null
 +++ b/src/media/filters/mmal_video_decoder.cc
-@@ -0,0 +1,5256 @@
+@@ -0,0 +1,5258 @@
 +// Copyright (c) 2012 The Chromium Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -2440,7 +2450,7 @@
 +//#include "mojo/public/cpp/base/shared_memory_utils.h"
 +//#include "mojo/public/cpp/system/platform_handle.h"
 +#include "services/service_manager/public/cpp/connector.h"
-+#include "services/service_manager/sandbox/linux/sandbox_linux.h"
++#include "sandbox/policy/linux/sandbox_linux.h"
 +#include "content/public/common/zygote/sandbox_support_linux.h"
 +#include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
 +
@@ -3440,7 +3450,7 @@
 +    if (!single_process) {
 +      {
 +        base::Pickle request;
-+        request.WriteInt(::service_manager::SandboxLinux::METHOD_OPEN_DEV_VCSM);
++        request.WriteInt(::sandbox::policy::SandboxLinux::METHOD_OPEN_DEV_VCSM);
 +        request.WriteBool(cma_req);
 +
 +        uint8_t reply_buf[512];
@@ -3465,7 +3475,7 @@
 +
 +      {
 +        base::Pickle request;
-+        request.WriteInt(::service_manager::SandboxLinux::METHOD_OPEN_DEV_VCHIQ);
++        request.WriteInt(::sandbox::policy::SandboxLinux::METHOD_OPEN_DEV_VCHIQ);
 +
 +        uint8_t reply_buf[512];
 +        int fd;
@@ -3865,6 +3875,8 @@
 +      mailbox_ = sii->CreateSharedImage(gpu_buf_.get(),
 +                                   gpu_factories_->GpuMemoryBufferManager(),
 +                                   color_space_,
++                                   kTopLeft_GrSurfaceOrigin,
++                                   kPremul_SkAlphaType,
 +                                   flags);
 +    }
 +
@@ -4752,7 +4764,7 @@
 +#endif
 +
 +    metadata()->allow_overlay =  true;
-+    metadata()->copy_required = false;
++    metadata()->copy_mode = media::VideoFrameMetadata::CopyMode::kCopyToNewTexture;
 +    metadata()->read_lock_fences_enabled = true;
 +  }
 +
@@ -7793,7 +7805,7 @@
  #endif
 --- a/src/media/renderers/paint_canvas_video_renderer.cc
 +++ b/src/media/renderers/paint_canvas_video_renderer.cc
-@@ -784,6 +784,7 @@ void PaintCanvasVideoRenderer::Paint(
+@@ -802,6 +802,7 @@ void PaintCanvasVideoRenderer::Paint(
    // frame has an unexpected format.
    if (!video_frame.get() || video_frame->natural_size().IsEmpty() ||
        !(media::IsYuvPlanar(video_frame->format()) ||
@@ -7803,7 +7815,7 @@
      cc::PaintFlags black_with_alpha_flags;
 --- a/src/media/renderers/video_renderer_impl.cc
 +++ b/src/media/renderers/video_renderer_impl.cc
-@@ -283,6 +283,12 @@ base::TimeDelta VideoRendererImpl::GetPr
+@@ -285,6 +285,12 @@ base::TimeDelta VideoRendererImpl::GetPr
    return algorithm_->average_frame_duration();
  }
  
@@ -7818,7 +7830,7 @@
    base::AutoLock auto_lock(lock_);
 --- a/src/media/renderers/video_renderer_impl.h
 +++ b/src/media/renderers/video_renderer_impl.h
-@@ -89,6 +89,7 @@ class MEDIA_EXPORT VideoRendererImpl
+@@ -91,6 +91,7 @@ class MEDIA_EXPORT VideoRendererImpl
                                     bool background_rendering) override;
    void OnFrameDropped() override;
    base::TimeDelta GetPreferredRenderInterval() override;
@@ -7863,7 +7875,7 @@
      case PIXEL_FORMAT_I422:
      case PIXEL_FORMAT_I444:
      case PIXEL_FORMAT_I420A:
-@@ -235,6 +246,7 @@ class VideoResourceUpdater::PlaneResourc
+@@ -253,6 +264,7 @@ class VideoResourceUpdater::PlaneResourc
  
    // Casts |this| to SoftwarePlaneResource for software compositing.
    SoftwarePlaneResource* AsSoftware();
@@ -7871,7 +7883,7 @@
  
    // Casts |this| to HardwarePlaneResource for GPU compositing.
    HardwarePlaneResource* AsHardware();
-@@ -249,12 +261,17 @@ class VideoResourceUpdater::PlaneResourc
+@@ -267,12 +279,17 @@ class VideoResourceUpdater::PlaneResourc
    // Sets the unique identifiers for this resource, may only be called when
    // there is a single reference to the resource (i.e. |ref_count_| == 1).
    void SetUniqueId(int unique_frame_id, size_t plane_index) {
@@ -7890,7 +7902,7 @@
    // Accessors for resource identifiers provided at construction time.
    uint32_t plane_resource_id() const { return plane_resource_id_; }
    const gfx::Size& resource_size() const { return resource_size_; }
-@@ -265,6 +282,8 @@ class VideoResourceUpdater::PlaneResourc
+@@ -283,6 +300,8 @@ class VideoResourceUpdater::PlaneResourc
    void remove_ref() { --ref_count_; }
    void clear_refs() { ref_count_ = 0; }
    bool has_refs() const { return ref_count_ != 0; }
@@ -7899,7 +7911,7 @@
  
   private:
    const uint32_t plane_resource_id_;
-@@ -288,16 +307,43 @@ class VideoResourceUpdater::PlaneResourc
+@@ -306,16 +325,43 @@ class VideoResourceUpdater::PlaneResourc
  
  class VideoResourceUpdater::SoftwarePlaneResource
      : public VideoResourceUpdater::PlaneResource {
@@ -7949,7 +7961,7 @@
      DCHECK(shared_bitmap_reporter_);
  
      // Allocate SharedMemory and notify display compositor of the allocation.
-@@ -308,28 +354,91 @@ class VideoResourceUpdater::SoftwarePlan
+@@ -326,28 +372,91 @@ class VideoResourceUpdater::SoftwarePlan
      shared_bitmap_reporter_->DidAllocateSharedBitmap(std::move(shm.region),
                                                       shared_bitmap_id_);
    }
@@ -8047,7 +8059,7 @@
  class VideoResourceUpdater::HardwarePlaneResource
      : public VideoResourceUpdater::PlaneResource {
   public:
-@@ -400,7 +509,7 @@ class VideoResourceUpdater::HardwarePlan
+@@ -419,7 +528,7 @@ class VideoResourceUpdater::HardwarePlan
    const gpu::Mailbox& mailbox() const { return mailbox_; }
  
    GLenum texture_target() const { return texture_target_; }
@@ -8056,7 +8068,7 @@
  
   private:
    gpu::SharedImageInterface* SharedImageInterface() {
-@@ -737,7 +846,7 @@ VideoResourceUpdater::PlaneResource* Vid
+@@ -757,7 +866,7 @@ VideoResourceUpdater::PlaneResource* Vid
    if (software_compositor()) {
      DCHECK_EQ(format, viz::ResourceFormat::RGBA_8888);
  
@@ -8065,7 +8077,7 @@
          plane_resource_id, plane_size, shared_bitmap_reporter_));
    } else {
      all_resources_.push_back(std::make_unique<HardwarePlaneResource>(
-@@ -884,6 +993,12 @@ VideoFrameExternalResources VideoResourc
+@@ -929,6 +1038,12 @@ VideoFrameExternalResources VideoResourc
    return external_resources;
  }
  
@@ -8078,7 +8090,7 @@
  VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
      scoped_refptr<VideoFrame> video_frame) {
    TRACE_EVENT0("cc", "VideoResourceUpdater::CreateForSoftwarePlanes");
-@@ -893,6 +1008,7 @@ VideoFrameExternalResources VideoResourc
+@@ -938,6 +1053,7 @@ VideoFrameExternalResources VideoResourc
  
    // Only YUV and Y16 software video frames are supported.
    DCHECK(IsYuvPlanar(input_frame_format) ||
@@ -8086,7 +8098,7 @@
           input_frame_format == PIXEL_FORMAT_Y16);
  
    viz::ResourceFormat output_resource_format;
-@@ -956,6 +1072,7 @@ VideoFrameExternalResources VideoResourc
+@@ -1001,6 +1117,7 @@ VideoFrameExternalResources VideoResourc
            return false;
  
          return resource->resource_format() != output_resource_format ||
@@ -8094,7 +8106,7 @@
                 !base::Contains(outplane_plane_sizes, resource->resource_size());
        };
    base::EraseIf(all_resources_, can_delete_resource_fn);
-@@ -963,11 +1080,37 @@ VideoFrameExternalResources VideoResourc
+@@ -1008,11 +1125,37 @@ VideoFrameExternalResources VideoResourc
    // Recycle or allocate resources for each video plane.
    std::vector<PlaneResource*> plane_resources;
    plane_resources.reserve(output_plane_count);
@@ -8137,7 +8149,7 @@
    }
  
    VideoFrameExternalResources external_resources;
-@@ -1009,19 +1152,30 @@ VideoFrameExternalResources VideoResourc
+@@ -1054,19 +1197,30 @@ VideoFrameExternalResources VideoResourc
                                 media::kNoTransformation, nullptr);
        } else {
          HardwarePlaneResource* hardware_resource = plane_resource->AsHardware();
@@ -8180,7 +8192,7 @@
  
          // Copy pixels into texture.
          auto* gl = raster_context_provider_
-@@ -1036,7 +1190,7 @@ VideoFrameExternalResources VideoResourc
+@@ -1081,7 +1235,7 @@ VideoFrameExternalResources VideoResourc
            gl->TexSubImage2D(
                hardware_resource->texture_target(), 0, 0, 0, plane_size.width(),
                plane_size.height(), GLDataFormat(viz::ResourceFormat::RGBA_8888),
@@ -8189,7 +8201,7 @@
          }
        }
        plane_resource->SetUniqueId(video_frame->unique_id(), 0);
-@@ -1050,6 +1204,8 @@ VideoFrameExternalResources VideoResourc
+@@ -1095,6 +1249,8 @@ VideoFrameExternalResources VideoResourc
            software_resource->shared_bitmap_id(),
            software_resource->resource_size(),
            plane_resource->resource_format());
@@ -8198,7 +8210,7 @@
      } else {
        HardwarePlaneResource* hardware_resource = plane_resource->AsHardware();
        external_resources.type = VideoFrameResourceType::RGBA;
-@@ -1242,6 +1398,11 @@ void VideoResourceUpdater::ReturnTexture
+@@ -1301,6 +1457,11 @@ void VideoResourceUpdater::DestroyMailbo
    video_frame->UpdateReleaseSyncToken(&client);
  }
  
@@ -8212,7 +8224,7 @@
                                             bool lost_resource) {
 --- a/src/media/renderers/video_resource_updater.h
 +++ b/src/media/renderers/video_resource_updater.h
-@@ -132,6 +132,8 @@ class MEDIA_EXPORT VideoResourceUpdater
+@@ -136,6 +136,8 @@ class MEDIA_EXPORT VideoResourceUpdater
    class PlaneResource;
    class HardwarePlaneResource;
    class SoftwarePlaneResource;
@@ -8221,9 +8233,9 @@
  
    // A resource that will be embedded in a DrawQuad in the next CompositorFrame.
    // Each video plane will correspond to one FrameResource.
-@@ -189,6 +191,8 @@ class MEDIA_EXPORT VideoResourceUpdater
-                      const gpu::SyncToken& sync_token,
-                      bool lost_resource);
+@@ -197,6 +199,8 @@ class MEDIA_EXPORT VideoResourceUpdater
+                       const gpu::SyncToken& sync_token,
+                       bool lost_resource);
  
 +  void DidDeleteSharedBitmap(const viz::SharedBitmapId& id) const;
 +
@@ -8232,7 +8244,7 @@
                      base::trace_event::ProcessMemoryDump* pmd) override;
 --- a/src/media/video/gpu_memory_buffer_video_frame_pool.cc
 +++ b/src/media/video/gpu_memory_buffer_video_frame_pool.cc
-@@ -578,6 +578,11 @@ void GpuMemoryBufferVideoFramePool::Pool
+@@ -578,6 +578,12 @@ void GpuMemoryBufferVideoFramePool::Pool
  #endif
  
    bool passthrough = false;
@@ -8241,7 +8253,8 @@
 +  if (!video_frame->IsMappable())
 +    passthrough = true;
 +
- #if defined(OS_MACOSX)
++
+ #if defined(OS_MAC)
    if (!IOSurfaceCanSetColorSpace(video_frame->ColorSpace()))
      passthrough = true;
 --- /dev/null
@@ -8944,7 +8957,7 @@
 +    "src/third_party/skia"]
 +
 +# Our base tag or commit no
-+src_commit="85.0.4183.121"
++src_commit="86.0.4240.198"
 --- /dev/null
 +++ b/src/pi-util/pipewire_utils_h.patch
 @@ -0,0 +1,11 @@
@@ -9119,71 +9132,6 @@
 +ln -sf ../arm-linux-gnueabihf/pkgconfig/* .
 +cd ../../../../../..
 +pi-util/rebase_liblinks.py $DST
---- a/src/services/service_manager/sandbox/linux/bpf_gpu_policy_linux.cc
-+++ b/src/services/service_manager/sandbox/linux/bpf_gpu_policy_linux.cc
-@@ -58,6 +58,19 @@ ResultExpr GpuProcessPolicy::EvaluateSys
-     // (MAP_LOCKED | MAP_EXECUTABLE | MAP_32BIT)
-     case __NR_mmap:
- #endif
-+#ifdef USE_X11
-+    // Wanted for shm generation for ImageX11
-+    case __NR_memfd_create:
-+
-+    // Wanted for MESA to fire up happily
-+    // *** Should almost certainly arrange for the offending setup
-+    //     to happen before sandbox is applied but I can't work out
-+    //     what is needed
-+    // Alternatively --in-process-gpu fixes the issue
-+    case __NR_readlink:  // 85
-+    case __NR_stat64:    // 195
-+    case __NR_openat:    // 322 --- This one is clearly bad!
-+#endif
-     // We also hit this on the linux_chromeos bot but don't yet know what
-     // weird flags were involved.
-     case __NR_mprotect:
---- a/src/services/service_manager/sandbox/linux/bpf_renderer_policy_linux.cc
-+++ b/src/services/service_manager/sandbox/linux/bpf_renderer_policy_linux.cc
-@@ -27,6 +27,8 @@ struct local_dma_buf_sync {
-   _IOW(LOCAL_DMA_BUF_BASE, 0, struct local_dma_buf_sync)
- 
- using sandbox::SyscallSets;
-+using sandbox::bpf_dsl::If;
-+using sandbox::bpf_dsl::AnyOf;
- using sandbox::bpf_dsl::Allow;
- using sandbox::bpf_dsl::Arg;
- using sandbox::bpf_dsl::Error;
-@@ -36,14 +38,18 @@ namespace service_manager {
- 
- namespace {
- 
-+#define ISMAGIC(r, x) (((r) & (_IOC_TYPEMASK << _IOC_TYPESHIFT)) == ((x) << _IOC_TYPESHIFT))
-+
- ResultExpr RestrictIoctl() {
-   const Arg<unsigned long> request(1);
--  return Switch(request)
-+  // Pi - allow all VCHIQ ioctls and the VMCS_SM ioctls and VCSM ioctls too
-+  return If(AnyOf(ISMAGIC(request, 0xc4), ISMAGIC(request, 'I'), ISMAGIC(request, 'J')), Allow()).Else(
-+    Switch(request)
-       .SANDBOX_BPF_DSL_CASES((static_cast<unsigned long>(TCGETS), FIONREAD),
-                              Allow())
-       .SANDBOX_BPF_DSL_CASES(
-           (static_cast<unsigned long>(LOCAL_DMA_BUF_IOCTL_SYNC)), Allow())
--      .Default(sandbox::CrashSIGSYSIoctl());
-+      .Default(sandbox::CrashSIGSYSIoctl()));
- }
- 
- }  // namespace
---- a/src/services/service_manager/sandbox/linux/sandbox_linux.h
-+++ b/src/services/service_manager/sandbox/linux/sandbox_linux.h
-@@ -61,6 +61,8 @@ class SERVICE_MANAGER_SANDBOX_EXPORT San
-     DEPRECATED_METHOD_GET_STYLE_FOR_STRIKE,
-     METHOD_MAKE_SHARED_MEMORY_SEGMENT,
-     DEPRECATED_METHOD_MATCH_WITH_FALLBACK,
-+    METHOD_OPEN_DEV_VCHIQ,
-+    METHOD_OPEN_DEV_VCSM,
-   };
- 
-   // These form a bitmask which describes the conditions of the Linux sandbox.
 --- a/src/services/viz/public/cpp/compositing/transferable_resource_mojom_traits.cc
 +++ b/src/services/viz/public/cpp/compositing/transferable_resource_mojom_traits.cc
 @@ -33,6 +33,7 @@ bool StructTraits<viz::mojom::Transferab
@@ -9281,38 +9229,38 @@
    public_configs = [ ":libdrm_config" ]
 --- a/src/ui/android/delegated_frame_host_android.h
 +++ b/src/ui/android/delegated_frame_host_android.h
-@@ -121,6 +121,8 @@ class UI_ANDROID_EXPORT DelegatedFrameHo
+@@ -126,6 +126,8 @@ class UI_ANDROID_EXPORT DelegatedFrameHo
    void SetTopControlsVisibleHeight(float height);
  
   private:
 +  void DidStretchFrame(uint32_t width, uint32_t height) override {}
 +
-   // viz::HostFrameSinkClient implementation.
-   void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) override;
-   void OnFrameTokenChanged(uint32_t frame_token) override;
+   // FrameEvictorClient implementation.
+   void EvictDelegatedFrame() override;
+ 
 --- a/src/ui/base/x/x11_software_bitmap_presenter.h
 +++ b/src/ui/base/x/x11_software_bitmap_presenter.h
-@@ -40,6 +40,9 @@ class COMPONENT_EXPORT(UI_BASE_X) X11Sof
+@@ -38,6 +38,9 @@ class COMPONENT_EXPORT(UI_BASE_X) X11Sof
    void EndPaint(const gfx::Rect& damage_rect);
    void OnSwapBuffers(SwapBuffersCallback swap_ack_callback);
    int MaxFramesPending() const;
 +  gfx::AcceleratedWidget GetAcceleratedWidget() const {
-+    return widget_;
++    return static_cast<uint32_t>(widget_);
 +  }
  
   private:
    // Draw |data| over |widget|'s parent-relative background, and write the
 --- a/src/ui/gfx/BUILD.gn
 +++ b/src/ui/gfx/BUILD.gn
-@@ -3,6 +3,7 @@
+@@ -2,6 +2,7 @@
+ # Use of this source code is governed by a BSD-style license that can be
  # found in the LICENSE file.
  
- import("//build/config/jumbo.gni")
 +import("//build/config/sysroot.gni")
  import("//build/config/ui.gni")
  import("//device/vr/buildflags/buildflags.gni")
  import("//testing/libfuzzer/fuzzer_test.gni")
-@@ -577,6 +578,21 @@ jumbo_source_set("memory_buffer_sources"
+@@ -576,6 +577,21 @@ source_set("memory_buffer_sources") {
      ]
  
      deps += [ "//build/config/linux/libdrm" ]
@@ -9333,7 +9281,7 @@
 +    }
    }
  
-   if (is_linux || is_android) {
+   if (is_linux || is_chromeos || is_android) {
 --- /dev/null
 +++ b/src/ui/gfx/linux/native_pixmap_vcsm.cc
 @@ -0,0 +1,324 @@
@@ -9766,7 +9714,7 @@
  #define HAVE_ARMV8_INLINE 0
  #define HAVE_NEON_INLINE 0
  #define HAVE_VFP_INLINE 1
-@@ -589,7 +589,7 @@
+@@ -593,7 +593,7 @@
  #define CONFIG_NEON_CLOBBER_TEST 0
  #define CONFIG_OSSFUZZ 0
  #define CONFIG_PIC 1
@@ -11467,7 +11415,7 @@
 +#endif
 +}
 +
- }  // SK_OPTS_NS
+ }  // namespace SK_OPTS_NS
  
  #endif//SkBlitMask_opts_DEFINED
 --- a/src/third_party/skia/src/opts/SkBlitRow_opts.h
@@ -11928,10 +11876,11 @@
          memsetT(buffer, value, count);
 --- a/src/components/viz/service/display/surface_aggregator.cc
 +++ b/src/components/viz/service/display/surface_aggregator.cc
-@@ -1310,6 +1310,25 @@ gfx::Rect SurfaceAggregator::PrewalkRend
-                                       remapped_pass_id, will_draw, result);
-         }
- 
+@@ -1324,6 +1324,26 @@ gfx::Rect SurfaceAggregator::PrewalkRend
+         gfx::Rect child_rect;
+         float x_scale = SK_Scalar1;
+         float y_scale = SK_Scalar1;
++
 +        if (child_surface->GetActiveFrame().metadata.may_contain_video) {
 +          if (child_surface->size_in_pixels() != surface_quad->rect.size())
 +          {
@@ -11953,17 +11902,78 @@
 +
          if (surface_quad->stretch_content_to_fill_bounds) {
            if (!child_surface->size_in_pixels().IsEmpty()) {
-             float y_scale = static_cast<float>(surface_quad->rect.height()) /
+             x_scale = static_cast<float>(surface_quad->rect.width()) /
 --- a/src/media/base/video_decoder.h
 +++ b/src/media/base/video_decoder.h
-@@ -135,6 +135,10 @@ class MEDIA_EXPORT VideoDecoder {
+@@ -121,6 +121,9 @@ class MEDIA_EXPORT VideoDecoder : public
    // [|limits::kMinVideoDecodeThreads|, |limits::kMaxVideoDecodeThreads|].
    static int GetRecommendedThreadCount(int desired_threads);
  
 +  // Alert that we would like a differet frame size
 +  virtual void TryResizeFrame(uint32_t width, uint32_t height) {}
 +
-+
+  private:
    DISALLOW_COPY_AND_ASSIGN(VideoDecoder);
  };
+--- a/src/sandbox/policy/linux/bpf_gpu_policy_linux.cc
++++ b/src/sandbox/policy/linux/bpf_gpu_policy_linux.cc
+@@ -76,6 +76,16 @@ ResultExpr GpuProcessPolicy::EvaluateSys
+     case __NR_mmap:
+       return Allow();
+ #endif
++#ifdef USE_X11
++    // Wanted for MESA to fire up happily
++    // *** Should almost certainly arrange for the offending setup
++    //     to happen before sandbox is applied but I can't work out
++    //     what is needed
++    // Alternatively --in-process-gpu fixes the issue
++    case __NR_readlink:  // 85
++    case __NR_stat64:    // 195
++    case __NR_openat:    // 322 --- This one is clearly bad!
++#endif
+     // We also hit this on the linux_chromeos bot but don't yet know what
+     // weird flags were involved.
+     case __NR_mprotect:
+--- a/src/sandbox/policy/linux/bpf_renderer_policy_linux.cc
++++ b/src/sandbox/policy/linux/bpf_renderer_policy_linux.cc
+@@ -26,6 +26,8 @@ struct local_dma_buf_sync {
+ #define LOCAL_DMA_BUF_IOCTL_SYNC \
+   _IOW(LOCAL_DMA_BUF_BASE, 0, struct local_dma_buf_sync)
  
++using sandbox::bpf_dsl::If;
++using sandbox::bpf_dsl::AnyOf;
+ using sandbox::bpf_dsl::Allow;
+ using sandbox::bpf_dsl::Arg;
+ using sandbox::bpf_dsl::Error;
+@@ -36,14 +38,18 @@ namespace policy {
+ 
+ namespace {
+ 
++#define ISMAGIC(r, x) (((r) & (_IOC_TYPEMASK << _IOC_TYPESHIFT)) == ((x) << _IOC_TYPESHIFT))
++
+ ResultExpr RestrictIoctl() {
+   const Arg<unsigned long> request(1);
+-  return Switch(request)
++  // Pi - allow all VCHIQ ioctls and the VMCS_SM ioctls and VCSM ioctls too
++  return If(AnyOf(ISMAGIC(request, 0xc4), ISMAGIC(request, 'I'), ISMAGIC(request, 'J')), Allow()).Else(
++    Switch(request)
+       .SANDBOX_BPF_DSL_CASES((static_cast<unsigned long>(TCGETS), FIONREAD),
+                              Allow())
+       .SANDBOX_BPF_DSL_CASES(
+           (static_cast<unsigned long>(LOCAL_DMA_BUF_IOCTL_SYNC)), Allow())
+-      .Default(CrashSIGSYSIoctl());
++      .Default(CrashSIGSYSIoctl()));
+ }
+ 
+ }  // namespace
+--- a/src/sandbox/policy/linux/sandbox_linux.h
++++ b/src/sandbox/policy/linux/sandbox_linux.h
+@@ -62,6 +62,8 @@ class SANDBOX_POLICY_EXPORT SandboxLinux
+     DEPRECATED_METHOD_GET_STYLE_FOR_STRIKE,
+     METHOD_MAKE_SHARED_MEMORY_SEGMENT,
+     DEPRECATED_METHOD_MATCH_WITH_FALLBACK,
++    METHOD_OPEN_DEV_VCHIQ,
++    METHOD_OPEN_DEV_VCSM,
+   };
+ 
+   // These form a bitmask which describes the conditions of the Linux sandbox.
